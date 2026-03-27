@@ -1,0 +1,240 @@
+﻿oh, so u
+AI Content Engine
+Technical Requirements Document (TRD)
+Version
+1.0 — Internal Tool
+Stack
+Python (Backend) + React (Frontend) + Claude API
+Date
+March 2026
+Status
+Draft — For Engineering Review
+Owner
+Engineering / Product Team
+1. System Architecture
+The AI Content Engine is a three-layer internal web application:
+Scraper Layer — Python scripts that pull data from Reddit (via PRAW) and Quora (via requests/BeautifulSoup or Apify). Runs on a schedule or on-demand.
+AI Processing Layer — Claude API (claude-sonnet-4-20250514) receives scraped content, extracts insights, and generates content outputs using structured prompts.
+Frontend Layer — React-based dashboard where the content team views blog counts, reviews scraped topics, selects output types, and exports content.
+Layer
+Technology
+Purpose
+Scraper
+Python 3.11, PRAW, BeautifulSoup / Apify
+Collect forum data
+Backend API
+FastAPI (Python)
+Orchestrate scraping, AI calls, storage
+AI Engine
+Claude API (Anthropic)
+Content generation & insight extraction
+Database
+PostgreSQL or SQLite (dev)
+Store scraped posts, outputs, blog index
+Frontend
+React + TailwindCSS
+Internal dashboard UI
+Hosting
+Internal server or Render/Railway (simple cloud)
+Deployment
+2. Module 1 — Blog Counter
+2.1 Data Source
+Fetch blog post metadata from blog.ohsou.com using:
+WordPress REST API: https://blog.ohsou.com/wp-json/wp/v2/posts?per_page=100
+Paginate through results if total posts exceed 100.
+Extract: post title, category, published date, slug.
+2.2 Categorization Logic
+Map WordPress category IDs to oh so u categories:
+Category Name
+WP Category ID (verify on launch)
+Content Focus
+Bra
+bra
+Bra types, fit, care
+Shapewear
+shapewear
+Shapewear types, occasions
+Panty
+panty
+Panty types, comfort
+Fashion
+fashion
+Styling, outfits, trends
+2.3 Output
+Blog count dashboard showing:
+Total blog count
+Count per category
+Last updated timestamp
+Topic gap flag: categories with fewer than 5 posts
+Trending community topics not yet covered in blog
+2.4 API Endpoint
+GET /api/blog-count
+Response: { total: 28, categories: { bra: 12, shapewear: 8, panty: 3, fashion: 5, other: 0 }, last_updated: '2026-03-27' }
+3. Module 2 — Source Scraper
+3.1 Reddit Scraper
+Library: PRAW (Python Reddit API Wrapper) — uses Reddit's official API, TOS-compliant.
+Target Subreddits:
+r/ABraThatFits — fit issues, sizing, comfort
+r/femalefashionadvice — styling, outfit planning, lingerie under clothes
+r/AskWomen — general female issues including body confidence
+r/IndiaFashion — India-specific fashion needs
+r/bigboobproblems — high-support bra needs
+r/weddingplanning — occasion innerwear needs (saree, lehenga, etc.)
+Search queries per subreddit (configurable):
+'bra uncomfortable', 'bra fit', 'shapewear recommendation', 'strapless bra', 'nursing bra India', 'seamless bra review', 'bra for big chest', 'invisible bra', 'lingerie India'
+Data collected per post:
+Post title, body text, score (upvotes), comment count, top 5 comments, URL, subreddit, created_at
+3.2 Quora Scraper
+Options (use one):
+Apify Quora Scraper Actor — managed cloud scraper, handles JS rendering, cost-effective at low volume.
+Requests + BeautifulSoup — suitable for Quora's public question pages; may break on layout changes.
+Search queries:
+'best bra for Indian women', 'shapewear India', 'comfortable bra all day', 'bra size guide India', 'lingerie for saree', 'wireless bra review India'
+Data collected per question:
+Question title, top 2–3 answers (text), answer upvotes, URL, scraped_at
+3.3 Scraper Configuration
+All scraper settings stored in config.yaml:
+subreddits: list of target subreddits
+quora_queries: list of search terms
+max_posts_per_source: default 50
+min_score: Reddit upvote threshold (default: 10)
+run_schedule: cron expression (e.g., '0 9 * * 1' = every Monday 9am)
+3.4 Data Storage Schema
+Table: scraped_posts
+Column
+Type
+Description
+id
+UUID
+Primary key
+source
+ENUM (reddit, quora)
+Data source
+title
+TEXT
+Post/question title
+body
+TEXT
+Post body or top answers
+score
+INTEGER
+Upvotes/engagement score
+url
+TEXT
+Source URL
+scraped_at
+TIMESTAMP
+When scraped
+processed
+BOOLEAN
+Whether AI has processed it
+category_tag
+TEXT
+Auto-tagged: bra / shapewear / panty / fashion
+4. Module 3 — AI Content Engine
+4.1 Model
+Model: claude-sonnet-4-20250514
+API: POST https://api.anthropic.com/v1/messages
+Max tokens: 2000 per content output
+4.2 Step 1: Insight Extraction Prompt
+For each scraped post, the AI first extracts the core female issue:
+System prompt:
+You are a content strategist for oh so u, an Indian women's innerwear brand. oh so u sells seamless bras, shapewear, and panties for Indian women. Your tone is warm, empowering, and body-positive. Extract the core female pain point or topic from the following forum post and summarize it in 1-2 sentences. Also suggest which category it belongs to: bra, shapewear, panty, fashion, or product-idea.
+4.3 Step 2: Content Generation Prompt
+System prompt for Blog Post:
+You are a content writer for oh so u, an Indian women's innerwear brand selling seamless bras and shapewear. Write a blog post about [TOPIC]. Use a warm, conversational, body-positive tone. Target Indian women aged 22-40. Include: 1 SEO-optimized title, 1 meta description, an introduction, 3-4 H2 subheadings with content outlines, and a CTA linking to ohsou.com. Do not mention competitor brands.
+System prompt for Reel Script:
+You are a social media writer for oh so u. Write a short-form video script (60-90 seconds) for Instagram Reels about [TOPIC]. Start with a strong hook (first 3 seconds). Use conversational Hindi-English mix if appropriate. End with a CTA. Add 8 relevant hashtags. Keep it engaging and body-positive.
+System prompt for Product Idea:
+You are a product strategist for oh so u. Based on this community pain point: [TOPIC], suggest a new product idea for oh so u. Include: product name concept, description, target use case, how it differs from oh so u's current range, and a priority score (High/Medium/Low) based on the size of the problem.
+4.4 API Call Structure
+POST /api/generate
+Body: { post_id: 'uuid', output_type: 'blog' | 'reel' | 'product_idea' }
+Response: { output_id: 'uuid', type: 'blog', title: '...', content: '...', generated_at: '...' }
+4.5 Output Storage Schema
+Table: generated_outputs
+Column
+Type
+Description
+id
+UUID
+Primary key
+post_id
+UUID (FK)
+Source scraped post
+output_type
+ENUM
+blog / reel / product_idea
+title
+TEXT
+Generated title
+content
+TEXT
+Full generated content
+status
+ENUM
+draft / approved / rejected / needs_edit
+generated_at
+TIMESTAMP
+Generation time
+5. Module 4 — Frontend Dashboard
+5.1 Tech Stack
+Framework: React 18 + Vite
+Styling: TailwindCSS
+State Management: React Context or Zustand
+API client: Axios
+5.2 Dashboard Pages
+Page
+Description
+Home / Summary
+Blog count by category, topic gaps, quick stats
+Scraped Topics
+Table of scraped posts with category tag, source, score, date
+Content Generator
+Select post + output type → trigger AI generation → preview
+Content Library
+All generated outputs — filter, approve, export
+Settings
+Configure subreddits, Quora queries, scrape schedule
+5.3 Export Options
+Copy to clipboard (plain text or Markdown)
+Export to Google Docs via Google Docs API (v2 feature)
+Download as .txt or .md file
+6. Security & Compliance
+Tool is internal-only, no public access. Simple auth (email/password or Google SSO for internal email).
+Reddit scraping via PRAW official API — rate limits respected (60 requests/min).
+Quora scraping via public pages only — no login, no private data. Scraped content not re-published verbatim.
+Claude API key stored as environment variable, never in frontend code.
+Scraped data retention: auto-delete after 30 days.
+No PII collected from scraped posts (usernames stripped before storage).
+7. Rate Limits & Quotas
+Service
+Limit
+Handling
+Reddit (PRAW)
+60 req/min
+Built-in rate limiter in PRAW
+Quora (Apify)
+As per plan
+Retry with backoff
+Claude API
+Tier-based tokens/min
+Queue requests, retry on 429
+WordPress REST API
+Public endpoint, no auth needed
+Cache response 1hr
+8. Environment Variables
+ANTHROPIC_API_KEY — Claude API key
+REDDIT_CLIENT_ID — Reddit API app client ID
+REDDIT_CLIENT_SECRET — Reddit API app client secret
+REDDIT_USER_AGENT — e.g. 'ohsou-content-engine/1.0'
+APIFY_API_TOKEN — Quora scraper token (if using Apify)
+DATABASE_URL — PostgreSQL connection string
+FRONTEND_URL — for CORS config
+9. Future Enhancements (v2+)
+Auto-publish approved blogs directly to blog.ohsou.com via WordPress REST API.
+Add Instagram comments scraper for brand-specific feedback.
+SEO keyword difficulty scoring via SEMrush or Ahrefs API.
+Multi-user roles: Writer, Reviewer, Admin.
+Analytics: track which community topics led to top-performing content.
+oh, so u — Internal Document — Confidential

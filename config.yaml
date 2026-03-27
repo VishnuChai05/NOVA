@@ -1,0 +1,17 @@
+subreddits:
+  - ABraThatFits
+  - femalefashionadvice
+  - AskWomen
+  - IndiaFashion
+  - bigboobproblems
+  - weddingplanning
+quora_queries:
+  - best bra for Indian women
+  - shapewear India
+  - comfortable bra all day
+  - bra size guide India
+  - lingerie for saree
+  - wireless bra review India
+max_posts_per_source: 50
+min_score: 10
+run_schedule: "0 9 * * 1"

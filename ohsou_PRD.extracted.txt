@@ -1,0 +1,149 @@
+﻿oh, so u
+AI Content Engine
+Product Requirements Document (PRD)
+Version
+1.0 — Internal Tool
+Brand
+oh so u (Bold Soul Brands Pvt. Ltd.)
+Date
+March 2026
+Status
+Draft — For Review
+Owner
+Content / Growth Team
+1. Product Overview
+The oh so u AI Content Engine is an internal tool designed to automate and streamline the process of discovering trending topics from female-oriented communities online, and converting those insights into ready-to-publish content assets — blog posts, short video/reel scripts, or product innovation ideas — all aligned with the oh so u brand voice.
+oh so u currently sells seamless bras, shapewear, and innerwear for Indian women (sizes S–4XL, 32B–44E). The brand's blog at blog.ohsou.com already has 25+ articles across categories: Bra, Shapewear, Panty, and Fashion. This tool will power a content pipeline that is data-driven, community-sourced, and brand-relevant.
+2. Problem Statement
+Content teams spend hours manually scouring Reddit, Quora, and forums to find what women are actually talking about in lingerie, body image, and fashion.
+There is no systematic way to turn community pain points into content briefs or product ideas.
+Existing blogs are educational but may not always reflect real, real-time conversations happening in the target audience's communities.
+Scaling content output requires a repeatable, AI-assisted pipeline — not ad-hoc manual research.
+3. Goals & Success Metrics
+3.1 Primary Goals
+Aggregate female-oriented conversations from Reddit, Quora, and other sources relevant to oh so u's niche.
+Generate three types of output: Blog Post brief, Reel/Video Script, and Product Idea.
+Reduce content research time from hours to minutes.
+Maintain oh so u's brand tone — warm, empowering, body-positive, Indian-context aware.
+3.2 Success Metrics
+Metric
+Target
+Topics surfaced per week
+50+ relevant threads/posts
+Content outputs generated per session
+5–10 per run
+Time saved per content piece
+~2–3 hours → <15 minutes
+Content usability rate
+>70% outputs require only minor edits
+Blog count tracked
+Auto-counted per run, logged in dashboard
+4. User Personas
+4.1 Content Marketer / Writer
+Needs: Trending topic ideas, ready-to-edit drafts, SEO angle suggestions.
+Pain: Too much time on research, not enough on writing.
+4.2 Brand / Growth Manager
+Needs: Visibility into what content is being created and how it maps to products.
+Pain: Hard to track content ROI and community signals together.
+4.3 Product Team
+Needs: Community-sourced product gap insights from real customer conversations.
+Pain: Product decisions are often based on internal assumptions, not community data.
+5. Core Features
+5.1 Source Aggregation (Scraping Layer)
+The tool will collect posts and threads from:
+Source 1: 
+Reddit
+r/ABraThatFits, r/femalefashionadvice, r/AskWomen, r/IndiaFashion, r/bigboobproblems, r/PlasticSurgery (body image context), r/weddingplanning (innerwear needs for occasions)
+Source 2: 
+Quora
+Questions tagged: Indian fashion, bra fit, shapewear, body confidence, lingerie India
+Source 3: 
+Future Sources
+Pinterest comments, YouTube comments on lingerie reviews, Instagram comments on brand posts
+5.2 Blog Counter & Tracker
+On each run, the tool will:
+Fetch all published posts from blog.ohsou.com via RSS or sitemap.
+Count total blogs by category: Bra, Shapewear, Panty, Fashion, Other.
+Display a dashboard summary (e.g., 'Total: 28 blogs | Bra: 12 | Shapewear: 8 | Fashion: 5 | Panty: 3').
+Flag topic gaps — categories or topics underrepresented vs. what community is asking about.
+5.3 AI Content Generation
+For each scraped insight, the AI engine (Claude API) will generate one of the following, based on user selection:
+Output Type
+Format
+Length
+Blog Post
+Title + Intro + Outline + SEO keywords
+400–600 words
+Reel / Video Script
+Hook + Script + CTA + Hashtags
+60–90 seconds
+Product Idea
+Problem Statement + Concept + Positioning
+200–300 words
+All outputs will be written in oh so u's brand voice: conversational, warm, body-positive, and Indian-context aware.
+5.4 Content Dashboard
+View all generated outputs in a session.
+Filter by output type (Blog / Reel / Product Idea).
+Mark as 'Approved', 'Needs Edit', or 'Rejected'.
+Export to Google Docs or copy to clipboard.
+6. User Flow
+The tool follows this end-to-end workflow:
+User opens the internal tool and clicks 'Run Content Engine'.
+Tool fetches blog count from blog.ohsou.com and displays summary dashboard.
+Tool scrapes latest posts from Reddit/Quora using configured search queries.
+AI processes each thread and extracts the core female issue / pain point.
+User reviews extracted insights and selects which to convert to content.
+User selects output type: Blog, Reel Script, or Product Idea.
+AI generates the content output with oh so u brand tone.
+User reviews, edits if needed, and exports / publishes.
+7. Content Output Specifications
+7.1 Blog Post
+Title with primary keyword
+Meta description (150–160 characters)
+Introduction paragraph (hook)
+Section outline with H2/H3 subheadings
+Internal link suggestions to existing oh so u products or blogs
+Closing CTA (e.g., shop link or product recommendation)
+7.2 Reel / Short Video Script
+Hook (first 3 seconds — attention grabber)
+Core script (spoken dialogue or on-screen text, 45–75 seconds)
+Transition suggestions (text overlays, B-roll cues)
+CTA (swipe up, link in bio, etc.)
+5–10 relevant hashtags
+7.3 Product Idea
+Community pain point summary
+Product concept (name + description)
+Target use case (e.g., 'for post-pregnancy', 'for saree occasion', etc.)
+Market positioning vs. existing oh so u SKUs
+Priority rating (High / Medium / Low) based on frequency of mention
+8. Non-Functional Requirements
+Internal use only — no public-facing login or auth needed initially.
+Outputs must be brand-safe — no mention of competitor brands.
+Scraper must comply with Reddit/Quora public API terms of service.
+Data from scraped sources should not be stored longer than 30 days.
+Tool should be usable by non-technical team members.
+9. Out of Scope (v1)
+Auto-publishing to blog or social media platforms.
+Real-time sentiment analysis or analytics.
+Integration with Shopify for product listing creation.
+Multi-user collaboration (v2 consideration).
+10. Suggested Milestones
+Phase
+Deliverable
+Timeline
+Phase 1
+Scraper (Reddit + Quora) + Blog Counter
+Week 1–2
+Phase 2
+AI Content Generator (Claude API integration)
+Week 3–4
+Phase 3
+Dashboard UI + Export
+Week 5–6
+Phase 4
+Testing, Brand Voice Tuning, Internal QA
+Week 7
+Phase 5
+Internal Launch + Feedback Loop
+Week 8
+oh, so u — Internal Document — Confidential
