@@ -15,7 +15,7 @@ from app.services.scrape_scheduler import start_continuous_scraper, stop_continu
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    start_continuous_scraper()
+    start_continuous_scraper(respect_config=True)
     yield
     stop_continuous_scraper()
 

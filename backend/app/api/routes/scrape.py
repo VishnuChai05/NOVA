@@ -3,7 +3,19 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.scraped_post import ScrapedPost
-from app.schemas.scrape import ScrapedPostOut, ScrapeRunOut, ScrapeRunResponse
+from app.schemas.scrape import (
+    ScrapedPostOut,
+    ScrapeRunOut,
+    ScrapeRunResponse,
+    ScrapeSchedulerIntervalIn,
+    ScrapeSchedulerStatusOut,
+)
+from app.services.scrape_scheduler import (
+    get_scrape_scheduler_status,
+    set_scrape_interval_minutes,
+    start_continuous_scraper,
+    stop_continuous_scraper,
+)
 from app.services.scraper import list_scrape_runs, run_scrape
 
 router = APIRouter(tags=["scrape"])
@@ -30,3 +42,26 @@ def list_scraped_posts(db: Session = Depends(get_db)) -> list[ScrapedPostOut]:
 def get_scrape_runs(db: Session = Depends(get_db)) -> list[ScrapeRunOut]:
     rows = list_scrape_runs(db)
     return [ScrapeRunOut.model_validate(row) for row in rows]
+
+
+@router.get("/scrape/scheduler", response_model=ScrapeSchedulerStatusOut)
+def get_scheduler_status() -> ScrapeSchedulerStatusOut:
+    return ScrapeSchedulerStatusOut.model_validate(get_scrape_scheduler_status())
+
+
+@router.post("/scrape/scheduler/start", response_model=ScrapeSchedulerStatusOut)
+def start_scheduler() -> ScrapeSchedulerStatusOut:
+    start_continuous_scraper()
+    return ScrapeSchedulerStatusOut.model_validate(get_scrape_scheduler_status())
+
+
+@router.post("/scrape/scheduler/stop", response_model=ScrapeSchedulerStatusOut)
+def stop_scheduler() -> ScrapeSchedulerStatusOut:
+    stop_continuous_scraper()
+    return ScrapeSchedulerStatusOut.model_validate(get_scrape_scheduler_status())
+
+
+@router.post("/scrape/scheduler/interval", response_model=ScrapeSchedulerStatusOut)
+def set_scheduler_interval(payload: ScrapeSchedulerIntervalIn) -> ScrapeSchedulerStatusOut:
+    set_scrape_interval_minutes(payload.interval_minutes)
+    return ScrapeSchedulerStatusOut.model_validate(get_scrape_scheduler_status())

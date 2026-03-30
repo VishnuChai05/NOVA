@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ScrapedPostOut(BaseModel):
@@ -35,3 +35,15 @@ class ScrapeRunOut(BaseModel):
     failures_json: str
 
     model_config = {"from_attributes": True}
+
+
+class ScrapeSchedulerStatusOut(BaseModel):
+    running: bool
+    interval_minutes: int
+    last_run_started_at: datetime | None = None
+    last_run_finished_at: datetime | None = None
+    last_run_status: str | None = None
+
+
+class ScrapeSchedulerIntervalIn(BaseModel):
+    interval_minutes: int = Field(ge=5, le=1440)
