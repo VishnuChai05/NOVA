@@ -9,12 +9,15 @@ from app.api.routes.health import router as health_router
 from app.api.routes.scrape import router as scrape_router
 from app.core.settings import settings
 from app.db.init_db import init_db
+from app.services.scrape_scheduler import start_continuous_scraper, stop_continuous_scraper
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    start_continuous_scraper()
     yield
+    stop_continuous_scraper()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

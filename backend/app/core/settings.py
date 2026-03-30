@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     scraper_retry_attempts: int = 3
     scraper_backoff_base_seconds: float = 1.0
     reddit_query_delay_seconds: float = 0.35
+    continuous_scrape_enabled: bool = True
+    continuous_scrape_interval_minutes: int = 60
 
 
 settings = Settings()

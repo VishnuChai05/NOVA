@@ -1,17 +1,18 @@
 subreddits:
+  - TwoXIndia
+  - IndianSkincareAddicts
+  - IndianMakeupAddicts
+  - IndianFashionAddicts
   - ABraThatFits
-  - femalefashionadvice
   - AskWomen
-  - IndiaFashion
-  - bigboobproblems
-  - weddingplanning
 quora_queries:
-  - best bra for Indian women
-  - shapewear India
-  - comfortable bra all day
-  - bra size guide India
-  - lingerie for saree
-  - wireless bra review India
+  - best women products in India reviews
+  - women hygiene product recommendations India
+  - best sanitary pads in India review
+  - best bras for Indian women product suggestions
+  - women skincare product issues India
+  - women shapewear review India
+  - women product problems and solutions India
 max_posts_per_source: 50
 min_score: 10
 run_schedule: "0 9 * * 1"

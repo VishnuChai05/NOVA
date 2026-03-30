@@ -52,15 +52,14 @@ class SourceFetchResult:
 
 def _reddit_queries() -> list[str]:
     return [
-        "bra uncomfortable",
-        "bra fit",
-        "shapewear recommendation",
-        "strapless bra",
-        "nursing bra India",
-        "seamless bra review",
-        "bra for big chest",
-        "invisible bra",
-        "lingerie India",
+        "women product review India",
+        "women product suggestions India",
+        "women hygiene product issues India",
+        "bra fitting problems India",
+        "period product recommendation India",
+        "shapewear comfort review India",
+        "skincare product review for women India",
+        "women safety product recommendation India",
     ]
 
 
@@ -80,20 +79,21 @@ def _classify_topic(text: str) -> str:
 def _default_config() -> ScraperConfig:
     return ScraperConfig(
         subreddits=[
+            "TwoXIndia",
+            "IndianSkincareAddicts",
+            "IndianMakeupAddicts",
+            "IndianFashionAddicts",
             "ABraThatFits",
-            "femalefashionadvice",
             "AskWomen",
-            "IndiaFashion",
-            "bigboobproblems",
-            "weddingplanning",
         ],
         quora_queries=[
-            "best bra for Indian women",
-            "shapewear India",
-            "comfortable bra all day",
-            "bra size guide India",
-            "lingerie for saree",
-            "wireless bra review India",
+            "best women products in India reviews",
+            "women hygiene product recommendations India",
+            "best sanitary pads in India review",
+            "best bras for Indian women product suggestions",
+            "women skincare product issues India",
+            "women shapewear review India",
+            "women product problems and solutions India",
         ],
         max_posts_per_source=50,
         min_score=10,
@@ -201,9 +201,16 @@ def _fetch_reddit_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
     client = ApifyClient(settings.apify_api_token)
     actor_id = settings.apify_reddit_actor_id
 
-    # Google Search Scraper requires single query string with site filter
-    reddit_queries = _reddit_queries()[:3]
-    query_str = " OR ".join([f"site:reddit.com {q}" for q in reddit_queries])
+    # Google Search Scraper uses one query string. Include subreddit names as keywords,
+    # not URL path restrictions, to avoid over-restrictive domain filtering in actor output.
+    reddit_query_terms = _reddit_queries()[:4]
+    subreddit_terms = cfg.subreddits[:4]
+    scoped_queries: list[str] = []
+    for sub in subreddit_terms:
+        for term in reddit_query_terms:
+            scoped_queries.append(f"site:reddit.com {sub} {term}")
+
+    query_str = " OR ".join(scoped_queries[:8])
 
     run_input = {
         "queries": query_str,
@@ -249,7 +256,6 @@ def _fetch_reddit_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
                 break
         if len(results) >= cfg.max_posts_per_source:
             break
-            break
 
     return SourceFetchResult(source="reddit_apify", rows=results, failures=failures)
 
@@ -262,7 +268,7 @@ def _fetch_quora_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
     actor_id = settings.apify_quora_actor_id
     
     # Google Search Scraper requires single query string with site filter
-    quora_queries = cfg.quora_queries[:3]
+    quora_queries = cfg.quora_queries[:4]
     query_str = " OR ".join([f"site:quora.com {q}" for q in quora_queries])
     
     run_input = {
