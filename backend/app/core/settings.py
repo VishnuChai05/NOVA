@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-20250514"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
-    engine_default_provider: str = "template"
+    engine_default_provider: str = "groq"
 
     reddit_client_id: str = ""
     reddit_client_secret: str = ""

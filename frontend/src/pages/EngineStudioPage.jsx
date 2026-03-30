@@ -10,7 +10,7 @@ const ENGINE_TYPES = [
 
 export default function EngineStudioPage() {
   const [engine, setEngine] = useState("blog");
-  const [provider, setProvider] = useState("template");
+  const [provider, setProvider] = useState("groq");
   const [brief, setBrief] = useState(
     "Women in India are asking for better comfort, real reviews, and practical product suggestions for daily use."
   );
