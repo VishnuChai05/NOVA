@@ -19,20 +19,58 @@ This guide sets up real scraping for the oh so u content engine.
    - `REDDIT_CLIENT_ID=...`
    - `REDDIT_CLIENT_SECRET=...`
    - `REDDIT_USER_AGENT=ohsou-content-engine/1.0`
+   - `REDDIT_SOURCE_MODE=auto` (default)
 
 Notes:
 - The redirect URI is required by the app form, but this scraper flow does not use OAuth browser redirects.
 - If the new portal asks for extra fields, keep the app internal and do not enable scopes you do not need.
+- Reddit source mode options:
+   - `REDDIT_SOURCE_MODE=praw`: force official Reddit API via PRAW
+   - `REDDIT_SOURCE_MODE=apify`: use Apify token for Reddit discovery
+   - `REDDIT_SOURCE_MODE=auto`: prefer PRAW, fallback to Apify
 
-## 2) Quora Setup (Apify Primary)
+## 2) Apify Setup (Free Actors for Reddit & Quora)
 
-1. Create Apify account and API token.
-2. Add token to `.env`:
-   - `APIFY_API_TOKEN=...`
-3. Keep actor ID default or override:
-   - `APIFY_ACTOR_ID=apify/google-search-scraper`
+### Free Actor Options (Recommended)
 
-Note: The backend searches Quora results via actor query pattern `site:quora.com <topic>`.
+We use free Apify actors for both platforms:
+
+1. **Reddit**: `apify/reddit-post-scraper`
+   - Free tier available
+   - Searches Reddit posts and comments
+   - REDDIT_SOURCE_MODE=apify will use this actor
+
+2. **Quora**: `apify/website-content-crawler`
+   - Free tier available
+   - Web crawler for Quora question/answer pages
+   - APIFY_QUORA_ACTOR_ID preset to this
+
+### Setup Steps
+
+1. Create Apify account at https://apify.com
+2. Generate API token from Apify Console: https://console.apify.com/account/integrations
+3. Add token to `.env`:
+   ```
+   APIFY_API_TOKEN=<your_rotated_token>
+   APIFY_REDDIT_ACTOR_ID=apify/reddit-post-scraper
+   APIFY_QUORA_ACTOR_ID=apify/website-content-crawler
+   ```
+
+### Reddit Mode Options
+
+Set `REDDIT_SOURCE_MODE` in `.env`:
+- `REDDIT_SOURCE_MODE=praw` - Force official Reddit API via PRAW (requires Reddit dev credentials)
+- `REDDIT_SOURCE_MODE=apify` - Use free Apify Reddit actor (requires APIFY_API_TOKEN)
+- `REDDIT_SOURCE_MODE=auto` - Try PRAW first, fallback to Apify if PRAW fails
+
+Example for Apify-only setup:
+```env
+REDDIT_SOURCE_MODE=apify
+APIFY_API_TOKEN=apify_xxxxx...
+APIFY_REDDIT_ACTOR_ID=apify/reddit-post-scraper
+APIFY_QUORA_ACTOR_ID=apify/website-content-crawler
+ALLOW_FALLBACK_SEED_DATA=false
+```
 
 ## 3) Fallback Behavior
 

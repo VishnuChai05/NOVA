@@ -50,6 +50,20 @@ class SourceFetchResult:
     failures: list[str]
 
 
+def _reddit_queries() -> list[str]:
+    return [
+        "bra uncomfortable",
+        "bra fit",
+        "shapewear recommendation",
+        "strapless bra",
+        "nursing bra India",
+        "seamless bra review",
+        "bra for big chest",
+        "invisible bra",
+        "lingerie India",
+    ]
+
+
 def _classify_topic(text: str) -> str:
     content = text.lower()
     if "bra" in content:
@@ -129,17 +143,7 @@ def _fetch_reddit_posts(cfg: ScraperConfig) -> SourceFetchResult:
         user_agent=settings.reddit_user_agent,
     )
 
-    queries = [
-        "bra uncomfortable",
-        "bra fit",
-        "shapewear recommendation",
-        "strapless bra",
-        "nursing bra India",
-        "seamless bra review",
-        "bra for big chest",
-        "invisible bra",
-        "lingerie India",
-    ]
+    queries = _reddit_queries()
 
     results: list[dict] = []
     failures: list[str] = []
@@ -184,10 +188,63 @@ def _fetch_reddit_posts(cfg: ScraperConfig) -> SourceFetchResult:
                 if len(results) >= cfg.max_posts_per_source:
                     return SourceFetchResult(source="reddit", rows=results, failures=failures)
 
-                # Keep request pace predictable even if API wrappers also throttle.
-                time.sleep(max(0.0, float(settings.reddit_query_delay_seconds)))
+            # Keep request pace predictable even if API wrappers also throttle.
+            time.sleep(max(0.0, float(settings.reddit_query_delay_seconds)))
 
-            return SourceFetchResult(source="reddit", rows=results, failures=failures)
+    return SourceFetchResult(source="reddit", rows=results, failures=failures)
+
+
+def _fetch_reddit_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
+    if not settings.apify_api_token or ApifyClient is None:
+        return SourceFetchResult(source="reddit_apify", rows=[], failures=["Apify token or dependency missing"])
+
+    client = ApifyClient(settings.apify_api_token)
+    actor_id = settings.apify_reddit_actor_id
+
+    # Format Reddit queries for the dedicated Reddit scraper
+    queries: list[str] = _reddit_queries()
+
+    run_input = {
+        "queries": queries,
+        "maxResults": cfg.max_posts_per_source,
+    }
+
+    try:
+        run = _retry_with_backoff(lambda: client.actor(actor_id).call(run_input=run_input), "apify reddit actor run")
+    except Exception as exc:  # noqa: BLE001
+        return SourceFetchResult(source="reddit_apify", rows=[], failures=[str(exc)])
+
+    dataset_id = run.get("defaultDatasetId")
+    if not dataset_id:
+        return SourceFetchResult(source="reddit_apify", rows=[], failures=["No dataset id from Apify actor"])
+
+    results: list[dict] = []
+    failures: list[str] = []
+    try:
+        items_iter = client.dataset(dataset_id).iterate_items()
+    except Exception as exc:  # noqa: BLE001
+        return SourceFetchResult(source="reddit_apify", rows=[], failures=[str(exc)])
+
+    for item in items_iter:
+        url = str(item.get("url") or "")
+        title = str(item.get("title") or "").strip()
+        description = str(item.get("description") or "").strip()
+        if "reddit.com" not in url or not title:
+            continue
+
+        results.append(
+            {
+                "source": "reddit",
+                "title": title,
+                "body": description,
+                "score": 0,
+                "url": url,
+            }
+        )
+        if len(results) >= cfg.max_posts_per_source:
+            break
+
+    return SourceFetchResult(source="reddit_apify", rows=results, failures=failures)
 
 
 def _fetch_quora_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
@@ -195,10 +252,17 @@ def _fetch_quora_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
         return SourceFetchResult(source="quora_apify", rows=[], failures=["Apify token or dependency missing"])
 
     client = ApifyClient(settings.apify_api_token)
-    actor_id = settings.apify_actor_id
+    actor_id = settings.apify_quora_actor_id
+    
+    # Website crawler for Quora - scrape top URLs for each query
+    urls: list[str] = []
+    for q in cfg.quora_queries:
+        urls.append(f"https://www.quora.com/search?q={q.replace(' ', '+')}&type=question")
+    
     run_input = {
-        "queries": [f"site:quora.com {q}" for q in cfg.quora_queries],
-        "maxPagesPerQuery": 1,
+        "startUrls": [f"https://www.quora.com/search?q={q.replace(' ', '+')}&type=question" for q in cfg.quora_queries],
+        "maxRequestsPerCrawl": cfg.max_posts_per_source,
+        "includeUrlGlobs": ["+quora.com**"],
     }
 
     try:
@@ -281,9 +345,9 @@ def _fetch_quora_via_search(cfg: ScraperConfig) -> SourceFetchResult:
                 if len(results) >= cfg.max_posts_per_source:
                     return SourceFetchResult(source="quora_search", rows=results, failures=failures)
 
-                time.sleep(max(0.0, float(settings.reddit_query_delay_seconds)))
+            time.sleep(max(0.0, float(settings.reddit_query_delay_seconds)))
 
-            return SourceFetchResult(source="quora_search", rows=results, failures=failures)
+    return SourceFetchResult(source="quora_search", rows=results, failures=failures)
 
 
 def _seed_posts() -> list[dict]:
@@ -354,9 +418,42 @@ def run_scrape(db: Session) -> ScrapeExecutionResult:
     source_stats: dict[str, dict[str, int]] = {}
     all_failures: list[str] = []
 
-    reddit_result = _fetch_reddit_posts(cfg)
-    source_stats[reddit_result.source] = {"fetched": len(reddit_result.rows), "failed": len(reddit_result.failures)}
-    all_failures.extend(reddit_result.failures)
+    reddit_mode = settings.reddit_source_mode.strip().lower()
+    reddit_result: SourceFetchResult
+
+    if reddit_mode == "apify":
+        reddit_result = _fetch_reddit_via_apify(cfg)
+        source_stats[reddit_result.source] = {
+            "fetched": len(reddit_result.rows),
+            "failed": len(reddit_result.failures),
+        }
+        all_failures.extend(reddit_result.failures)
+    elif reddit_mode == "praw":
+        reddit_result = _fetch_reddit_posts(cfg)
+        source_stats[reddit_result.source] = {
+            "fetched": len(reddit_result.rows),
+            "failed": len(reddit_result.failures),
+        }
+        all_failures.extend(reddit_result.failures)
+    else:
+        # auto mode: prefer PRAW, then fallback to Apify if no rows.
+        reddit_primary = _fetch_reddit_posts(cfg)
+        source_stats[reddit_primary.source] = {
+            "fetched": len(reddit_primary.rows),
+            "failed": len(reddit_primary.failures),
+        }
+        all_failures.extend(reddit_primary.failures)
+
+        if reddit_primary.rows:
+            reddit_result = reddit_primary
+        else:
+            reddit_secondary = _fetch_reddit_via_apify(cfg)
+            source_stats[reddit_secondary.source] = {
+                "fetched": len(reddit_secondary.rows),
+                "failed": len(reddit_secondary.failures),
+            }
+            all_failures.extend(reddit_secondary.failures)
+            reddit_result = reddit_secondary
 
     quora_result = _fetch_quora_via_apify(cfg)
     source_stats[quora_result.source] = {"fetched": len(quora_result.rows), "failed": len(quora_result.failures)}
