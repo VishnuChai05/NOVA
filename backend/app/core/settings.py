@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     reddit_source_mode: str = "auto"
 
     apify_api_token: str = ""
-    apify_reddit_actor_id: str = "apify/reddit-post-scraper"
-    apify_quora_actor_id: str = "apify/website-content-crawler"
+    apify_reddit_actor_id: str = "apify/google-search-scraper"
+    apify_quora_actor_id: str = "apify/google-search-scraper"
     apify_actor_id: str = "apify/google-search-scraper"
     scraper_config_path: str = "config.yaml"
     allow_fallback_seed_data: bool = True

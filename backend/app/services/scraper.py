@@ -201,12 +201,13 @@ def _fetch_reddit_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
     client = ApifyClient(settings.apify_api_token)
     actor_id = settings.apify_reddit_actor_id
 
-    # Format Reddit queries for the dedicated Reddit scraper
-    queries: list[str] = _reddit_queries()
+    # Google Search Scraper requires single query string with site filter
+    reddit_queries = _reddit_queries()[:3]
+    query_str = " OR ".join([f"site:reddit.com {q}" for q in reddit_queries])
 
     run_input = {
-        "queries": queries,
-        "maxResults": cfg.max_posts_per_source,
+        "queries": query_str,
+        "maxPagesPerQuery": 1,
     }
 
     try:
@@ -226,22 +227,28 @@ def _fetch_reddit_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
         return SourceFetchResult(source="reddit_apify", rows=[], failures=[str(exc)])
 
     for item in items_iter:
-        url = str(item.get("url") or "")
-        title = str(item.get("title") or "").strip()
-        description = str(item.get("description") or "").strip()
-        if "reddit.com" not in url or not title:
-            continue
+        # Google Search Scraper returns results in organicResults field
+        organic_results = item.get("organicResults") or []
+        for result in organic_results:
+            url = str(result.get("url") or "")
+            title = str(result.get("title") or "").strip()
+            description = str(result.get("description") or "").strip()
+            if "reddit.com" not in url or not title:
+                continue
 
-        results.append(
-            {
-                "source": "reddit",
-                "title": title,
-                "body": description,
-                "score": 0,
-                "url": url,
-            }
-        )
+            results.append(
+                {
+                    "source": "reddit",
+                    "title": title,
+                    "body": description,
+                    "score": 0,
+                    "url": url,
+                }
+            )
+            if len(results) >= cfg.max_posts_per_source:
+                break
         if len(results) >= cfg.max_posts_per_source:
+            break
             break
 
     return SourceFetchResult(source="reddit_apify", rows=results, failures=failures)
@@ -254,15 +261,13 @@ def _fetch_quora_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
     client = ApifyClient(settings.apify_api_token)
     actor_id = settings.apify_quora_actor_id
     
-    # Website crawler for Quora - scrape top URLs for each query
-    urls: list[str] = []
-    for q in cfg.quora_queries:
-        urls.append(f"https://www.quora.com/search?q={q.replace(' ', '+')}&type=question")
+    # Google Search Scraper requires single query string with site filter
+    quora_queries = cfg.quora_queries[:3]
+    query_str = " OR ".join([f"site:quora.com {q}" for q in quora_queries])
     
     run_input = {
-        "startUrls": [f"https://www.quora.com/search?q={q.replace(' ', '+')}&type=question" for q in cfg.quora_queries],
-        "maxRequestsPerCrawl": cfg.max_posts_per_source,
-        "includeUrlGlobs": ["+quora.com**"],
+        "queries": query_str,
+        "maxPagesPerQuery": 1,
     }
 
     try:
@@ -282,20 +287,26 @@ def _fetch_quora_via_apify(cfg: ScraperConfig) -> SourceFetchResult:
         return SourceFetchResult(source="quora_apify", rows=[], failures=[str(exc)])
 
     for item in items_iter:
-        url = str(item.get("url") or "")
-        title = str(item.get("title") or "").strip()
-        if "quora.com" not in url or not title:
-            continue
+        # Google Search Scraper returns results in organicResults field
+        organic_results = item.get("organicResults") or []
+        for result in organic_results:
+            url = str(result.get("url") or "")
+            title = str(result.get("title") or "").strip()
+            description = str(result.get("description") or "").strip()
+            if "quora.com" not in url or not title:
+                continue
 
-        results.append(
-            {
-                "source": "quora",
-                "title": title,
-                "body": str(item.get("description") or "").strip(),
-                "score": int(item.get("rank") or 0),
-                "url": url,
-            }
-        )
+            results.append(
+                {
+                    "source": "quora",
+                    "title": title,
+                    "body": description,
+                    "score": 0,
+                    "url": url,
+                }
+            )
+            if len(results) >= cfg.max_posts_per_source:
+                break
         if len(results) >= cfg.max_posts_per_source:
             break
 
