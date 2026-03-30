@@ -13,3 +13,6 @@ export const listScrapedPosts = () => api.get("/scraped-posts");
 export const generateOutput = (payload) => api.post("/generate", payload);
 export const listOutputs = () => api.get("/outputs");
 export const updateOutputStatus = (id, status) => api.patch(`/outputs/${id}/status`, { status });
+export const runBlogMaker = (payload) => api.post("/engine/blog-maker", payload);
+export const runScriptGenerator = (payload) => api.post("/engine/script-generator", payload);
+export const runProductRange = (payload) => api.post("/engine/product-range", payload);

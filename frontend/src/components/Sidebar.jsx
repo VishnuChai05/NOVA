@@ -4,6 +4,7 @@ const links = [
   ["/", "Home / Summary"],
   ["/topics", "Scraped Topics"],
   ["/generator", "Content Generator"],
+  ["/engine-studio", "Engine Studio"],
   ["/library", "Content Library"],
   ["/settings", "Settings"],
 ];
