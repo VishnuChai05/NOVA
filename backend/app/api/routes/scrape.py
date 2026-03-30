@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.security import require_operational_api_key
 from app.db.session import get_db
 from app.models.scraped_post import ScrapedPost
 from app.schemas.scrape import (
@@ -18,7 +19,7 @@ from app.services.scrape_scheduler import (
 )
 from app.services.scraper import ConcurrentScrapeError, list_scrape_runs, run_scrape
 
-router = APIRouter(tags=["scrape"])
+router = APIRouter(tags=["scrape"], dependencies=[Depends(require_operational_api_key)])
 
 
 @router.post("/scrape/run", response_model=ScrapeRunResponse)

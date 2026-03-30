@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     environment: str = "dev"
     database_url: str = "sqlite:///./ohsou.db"
     frontend_url: str = "http://localhost:5173"
+    api_auth_enabled: bool = True
+    operational_api_key: str = "change-me"
 
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"

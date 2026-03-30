@@ -5,6 +5,11 @@ const api = axios.create({
   timeout: 20000,
 });
 
+const apiKey = import.meta.env.VITE_API_KEY;
+if (apiKey) {
+  api.defaults.headers.common["X-API-Key"] = apiKey;
+}
+
 export const health = () => api.get("/health");
 export const blogCount = () => api.get("/blog-count");
 export const refreshBlogCount = () => api.post("/blog-count/refresh");

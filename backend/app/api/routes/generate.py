@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.security import require_operational_api_key
 from app.core.settings import settings
 from app.db.session import get_db
 from app.models.evaluation_result import EvaluationResult
@@ -8,7 +9,7 @@ from app.models.generated_output import GeneratedOutput
 from app.schemas.generate import GenerateRequest, GenerateResponse, GeneratedOutputOut, UpdateStatusRequest
 from app.services.generator import generate_output
 
-router = APIRouter(tags=["generate"])
+router = APIRouter(tags=["generate"], dependencies=[Depends(require_operational_api_key)])
 
 
 @router.post("/generate", response_model=GenerateResponse)

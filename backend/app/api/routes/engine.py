@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.security import require_operational_api_key
 from app.schemas.engine import (
     BlogMakerRequest,
     EngineResponse,
@@ -8,7 +9,7 @@ from app.schemas.engine import (
 )
 from app.services.engine import run_blog_maker, run_product_range_engine, run_script_generator
 
-router = APIRouter(tags=["engine"])
+router = APIRouter(tags=["engine"], dependencies=[Depends(require_operational_api_key)])
 
 
 @router.post("/engine/blog-maker", response_model=EngineResponse)
