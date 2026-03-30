@@ -10,6 +10,7 @@ const ENGINE_TYPES = [
 
 export default function EngineStudioPage() {
   const [engine, setEngine] = useState("blog");
+  const [provider, setProvider] = useState("template");
   const [brief, setBrief] = useState(
     "Women in India are asking for better comfort, real reviews, and practical product suggestions for daily use."
   );
@@ -40,6 +41,7 @@ export default function EngineStudioPage() {
           target_audience: audience,
           brand_name: "oh so u",
           seo_focus_keyword: keyword,
+          llm_provider: provider,
         });
         setResult(res.data);
       } else if (engine === "script") {
@@ -48,6 +50,7 @@ export default function EngineStudioPage() {
           target_audience: audience,
           brand_name: "oh so u",
           campaign_goal: goal,
+          llm_provider: provider,
         });
         setResult(res.data);
       } else {
@@ -56,6 +59,7 @@ export default function EngineStudioPage() {
           target_audience: audience,
           brand_name: "oh so u",
           current_catalog_summary: catalog,
+          llm_provider: provider,
         });
         setResult(res.data);
       }
@@ -101,6 +105,15 @@ export default function EngineStudioPage() {
             <input value={audience} onChange={(e) => setAudience(e.target.value)} />
           </label>
 
+          <label>
+            Model Provider
+            <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+              <option value="template">Template (Fast, no API key)</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="groq">Groq</option>
+            </select>
+          </label>
+
           {engine === "blog" && (
             <label>
               SEO Focus Keyword
@@ -131,6 +144,10 @@ export default function EngineStudioPage() {
       {result && (
         <div className="card" style={{ marginTop: 12 }}>
           <p className="eyebrow">{result.engine.replace("_", " ")}</p>
+          <p>
+            Provider: <strong>{result.provider_used}</strong>
+            {result.used_fallback ? " (fallback used)" : ""}
+          </p>
           <h3>{result.title}</h3>
           <pre style={{ whiteSpace: "pre-wrap" }}>{result.content}</pre>
         </div>

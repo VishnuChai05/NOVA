@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+
+import httpx
+
+from app.core.settings import settings
 from app.schemas.engine import BlogMakerRequest, ProductRangeRequest, ScriptGeneratorRequest
 
 
@@ -7,13 +12,106 @@ def _clean(text: str) -> str:
     return " ".join(text.split()).strip()
 
 
-def run_blog_maker(payload: BlogMakerRequest) -> tuple[str, str]:
+def _resolve_provider(requested: str) -> str:
+    candidate = (requested or settings.engine_default_provider or "template").strip().lower()
+    if candidate in {"template", "anthropic", "groq"}:
+        return candidate
+    return "template"
+
+
+def _anthropic_generate(system_prompt: str, user_prompt: str) -> str:
+    if not settings.anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    payload = {
+        "model": settings.anthropic_model,
+        "max_tokens": 1200,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+    headers = {
+        "x-api-key": settings.anthropic_api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    with httpx.Client(timeout=45) as client:
+        response = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+    blocks = data.get("content") or []
+    text_chunks = [str(block.get("text") or "") for block in blocks if isinstance(block, dict)]
+    return "\n".join(chunk for chunk in text_chunks if chunk).strip()
+
+
+def _groq_generate(system_prompt: str, user_prompt: str) -> str:
+    if not settings.groq_api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+
+    payload = {
+        "model": settings.groq_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.4,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.groq_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    with httpx.Client(timeout=45) as client:
+        response = client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    return str(message.get("content") or "").strip()
+
+
+def _generate_with_provider(provider: str, system_prompt: str, user_prompt: str) -> str:
+    if provider == "anthropic":
+        return _anthropic_generate(system_prompt, user_prompt)
+    if provider == "groq":
+        return _groq_generate(system_prompt, user_prompt)
+    return ""
+
+
+def _build_content(
+    *,
+    requested_provider: str,
+    system_prompt: str,
+    user_prompt: str,
+    fallback_content: str,
+) -> tuple[str, str, bool]:
+    provider = _resolve_provider(requested_provider)
+    if provider == "template":
+        return fallback_content, provider, False
+
+    try:
+        generated = _generate_with_provider(provider, system_prompt, user_prompt)
+    except Exception as exc:  # noqa: BLE001
+        fallback_note = f"\n\nProvider fallback reason: {exc}"
+        return f"{fallback_content}{fallback_note}", provider, True
+
+    if not generated:
+        return f"{fallback_content}\n\nProvider fallback reason: empty model response", provider, True
+
+    return generated, provider, False
+
+
+def run_blog_maker(payload: BlogMakerRequest) -> tuple[str, str, str, bool]:
     keyword = _clean(payload.seo_focus_keyword)
     audience = _clean(payload.target_audience)
     brief = _clean(payload.brief)
 
     title = f"{payload.brand_name} Blog Blueprint: {keyword.title()}"
-    content = (
+    fallback_content = (
         f"SEO Keyword: {keyword}\n"
         f"Audience: {audience}\n"
         f"Working Brief: {brief}\n\n"
@@ -29,16 +127,27 @@ def run_blog_maker(payload: BlogMakerRequest) -> tuple[str, str]:
         "Cover red marks, rolling waistbands, strap slip, cup gaping, and chafing with direct fixes.\n\n"
         f"CTA: Explore curated solutions at https://ohsou.com/ under {payload.brand_name} essentials."
     )
-    return title, content
+    system_prompt = "You are a senior D2C content strategist for women's products in India."
+    user_prompt = (
+        "Create an actionable long-form blog blueprint with SEO metadata, headers, and a practical buying framework.\n"
+        f"Return clean plain text only.\nContext: {json.dumps({'brief': brief, 'audience': audience, 'keyword': keyword})}"
+    )
+    content, provider_used, used_fallback = _build_content(
+        requested_provider=payload.llm_provider,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        fallback_content=fallback_content,
+    )
+    return title, content, provider_used, used_fallback
 
 
-def run_script_generator(payload: ScriptGeneratorRequest) -> tuple[str, str]:
+def run_script_generator(payload: ScriptGeneratorRequest) -> tuple[str, str, str, bool]:
     audience = _clean(payload.target_audience)
     brief = _clean(payload.brief)
     goal = _clean(payload.campaign_goal)
 
     title = f"{payload.brand_name} Production Script Pack ({goal.title()})"
-    content = (
+    fallback_content = (
         f"Audience: {audience}\n"
         f"Campaign Goal: {goal}\n"
         f"Creative Brief: {brief}\n\n"
@@ -63,16 +172,27 @@ def run_script_generator(payload: ScriptGeneratorRequest) -> tuple[str, str]:
         "This pack is engineered for production: clear conflict, daily-life relevance, visual continuity, and direct product proof moments.\n"
         "It can be used for short-form reels, ad films, and PDP story clips with minimal rewrites."
     )
-    return title, content
+    system_prompt = "You are an ad-film creative director and screenplay writer."
+    user_prompt = (
+        "Generate a production-ready campaign pack with 4 sections: Story, Script, Screenplay shot list, and explanation.\n"
+        f"Plain text only.\nContext: {json.dumps({'brief': brief, 'audience': audience, 'goal': goal})}"
+    )
+    content, provider_used, used_fallback = _build_content(
+        requested_provider=payload.llm_provider,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        fallback_content=fallback_content,
+    )
+    return title, content, provider_used, used_fallback
 
 
-def run_product_range_engine(payload: ProductRangeRequest) -> tuple[str, str]:
+def run_product_range_engine(payload: ProductRangeRequest) -> tuple[str, str, str, bool]:
     audience = _clean(payload.target_audience)
     brief = _clean(payload.brief)
     catalog = _clean(payload.current_catalog_summary)
 
     title = f"{payload.brand_name} Range Expansion Plan"
-    content = (
+    fallback_content = (
         f"Audience: {audience}\n"
         f"Current Catalog: {catalog}\n"
         f"Research Brief: {brief}\n\n"
@@ -95,4 +215,15 @@ def run_product_range_engine(payload: ProductRangeRequest) -> tuple[str, str]:
         "Week 7-10: pilot launch in hero sizes and key shades.\n"
         "Week 11-12: optimize by review insights and restock winners."
     )
-    return title, content
+    system_prompt = "You are a product strategy lead for women's intimatewear and wellness categories."
+    user_prompt = (
+        "Create a product range expansion plan with gap map, concept list, growth strategy, and a 90-day rollout.\n"
+        f"Plain text only.\nContext: {json.dumps({'brief': brief, 'audience': audience, 'catalog': catalog})}"
+    )
+    content, provider_used, used_fallback = _build_content(
+        requested_provider=payload.llm_provider,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        fallback_content=fallback_content,
+    )
+    return title, content, provider_used, used_fallback
