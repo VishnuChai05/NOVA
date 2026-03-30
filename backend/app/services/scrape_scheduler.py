@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from app.core.settings import settings
 from app.db.session import SessionLocal
-from app.services.scraper import run_scrape
+from app.services.scraper import ConcurrentScrapeError, run_scrape
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,10 @@ def _scrape_loop() -> None:
                 result.created,
                 result.status,
             )
+        except ConcurrentScrapeError:
+            with _state_lock:
+                _last_run_status = "skipped_busy"
+            logger.warning("Skipping scheduled scrape because another scrape is already running")
         except Exception:  # noqa: BLE001
             with _state_lock:
                 _last_run_status = "failed"
@@ -94,6 +98,10 @@ def stop_continuous_scraper() -> bool:
     _wake_event.set()
     if _scheduler_thread and _scheduler_thread.is_alive():
         _scheduler_thread.join(timeout=5)
+        if _scheduler_thread.is_alive():
+            # Still shutting down; keep reference so status/start logic remains accurate.
+            return False
+
     _scheduler_thread = None
     return True
 

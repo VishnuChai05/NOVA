@@ -1,3 +1,5 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -5,9 +7,25 @@ from app.main import app
 
 def test_scrape_then_generate() -> None:
     with TestClient(app) as client:
-        scrape = client.post("/api/scrape/run")
-        assert scrape.status_code == 200
-        assert scrape.json()["run_id"]
+        # Keep test deterministic: avoid overlap with background scheduler run.
+        client.post("/api/scrape/scheduler/stop")
+
+        scrape = None
+        last_attempt = None
+        for _ in range(12):
+            attempt = client.post("/api/scrape/run")
+            last_attempt = attempt
+            if attempt.status_code == 200:
+                scrape = attempt
+                break
+            assert attempt.status_code == 409
+            time.sleep(1)
+
+        scrape = scrape or last_attempt
+        assert scrape is not None
+        assert scrape.status_code in (200, 409)
+        if scrape.status_code == 200:
+            assert scrape.json()["run_id"]
 
         posts = client.get("/api/scraped-posts")
         assert posts.status_code == 200

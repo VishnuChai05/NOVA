@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -16,14 +16,18 @@ from app.services.scrape_scheduler import (
     start_continuous_scraper,
     stop_continuous_scraper,
 )
-from app.services.scraper import list_scrape_runs, run_scrape
+from app.services.scraper import ConcurrentScrapeError, list_scrape_runs, run_scrape
 
 router = APIRouter(tags=["scrape"])
 
 
 @router.post("/scrape/run", response_model=ScrapeRunResponse)
 def trigger_scrape(db: Session = Depends(get_db)) -> ScrapeRunResponse:
-    result = run_scrape(db)
+    try:
+        result = run_scrape(db)
+    except ConcurrentScrapeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     return ScrapeRunResponse(
         run_id=result.run_id,
         created=result.created,

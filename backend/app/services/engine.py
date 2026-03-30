@@ -96,7 +96,7 @@ def _build_content(
     try:
         generated = _generate_with_provider(provider, system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
-        fallback_note = f"\n\nProvider fallback reason: {exc}"
+        fallback_note = "\n\nProvider fallback reason: provider unavailable"
         return f"{fallback_content}{fallback_note}", provider, True
 
     if not generated:

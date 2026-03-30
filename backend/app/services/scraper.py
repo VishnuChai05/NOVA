@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -48,6 +49,13 @@ class SourceFetchResult:
     source: str
     rows: list[dict]
     failures: list[str]
+
+
+class ConcurrentScrapeError(RuntimeError):
+    pass
+
+
+_SCRAPE_RUN_LOCK = threading.Lock()
 
 
 def _reddit_queries() -> list[str]:
@@ -429,98 +437,104 @@ def _finish_run_record(
 
 
 def run_scrape(db: Session) -> ScrapeExecutionResult:
-    cfg = _load_config()
-    run = _start_run_record(db)
+    if not _SCRAPE_RUN_LOCK.acquire(blocking=False):
+        raise ConcurrentScrapeError("A scrape run is already in progress")
 
-    source_stats: dict[str, dict[str, int]] = {}
-    all_failures: list[str] = []
+    try:
+        cfg = _load_config()
+        run = _start_run_record(db)
 
-    reddit_mode = settings.reddit_source_mode.strip().lower()
-    reddit_result: SourceFetchResult
+        source_stats: dict[str, dict[str, int]] = {}
+        all_failures: list[str] = []
 
-    if reddit_mode == "apify":
-        reddit_result = _fetch_reddit_via_apify(cfg)
-        source_stats[reddit_result.source] = {
-            "fetched": len(reddit_result.rows),
-            "failed": len(reddit_result.failures),
-        }
-        all_failures.extend(reddit_result.failures)
-    elif reddit_mode == "praw":
-        reddit_result = _fetch_reddit_posts(cfg)
-        source_stats[reddit_result.source] = {
-            "fetched": len(reddit_result.rows),
-            "failed": len(reddit_result.failures),
-        }
-        all_failures.extend(reddit_result.failures)
-    else:
-        # auto mode: prefer PRAW, then fallback to Apify if no rows.
-        reddit_primary = _fetch_reddit_posts(cfg)
-        source_stats[reddit_primary.source] = {
-            "fetched": len(reddit_primary.rows),
-            "failed": len(reddit_primary.failures),
-        }
-        all_failures.extend(reddit_primary.failures)
+        reddit_mode = settings.reddit_source_mode.strip().lower()
+        reddit_result: SourceFetchResult
 
-        if reddit_primary.rows:
-            reddit_result = reddit_primary
-        else:
-            reddit_secondary = _fetch_reddit_via_apify(cfg)
-            source_stats[reddit_secondary.source] = {
-                "fetched": len(reddit_secondary.rows),
-                "failed": len(reddit_secondary.failures),
+        if reddit_mode == "apify":
+            reddit_result = _fetch_reddit_via_apify(cfg)
+            source_stats[reddit_result.source] = {
+                "fetched": len(reddit_result.rows),
+                "failed": len(reddit_result.failures),
             }
-            all_failures.extend(reddit_secondary.failures)
-            reddit_result = reddit_secondary
+            all_failures.extend(reddit_result.failures)
+        elif reddit_mode == "praw":
+            reddit_result = _fetch_reddit_posts(cfg)
+            source_stats[reddit_result.source] = {
+                "fetched": len(reddit_result.rows),
+                "failed": len(reddit_result.failures),
+            }
+            all_failures.extend(reddit_result.failures)
+        else:
+            # auto mode: prefer PRAW, then fallback to Apify if no rows.
+            reddit_primary = _fetch_reddit_posts(cfg)
+            source_stats[reddit_primary.source] = {
+                "fetched": len(reddit_primary.rows),
+                "failed": len(reddit_primary.failures),
+            }
+            all_failures.extend(reddit_primary.failures)
 
-    quora_result = _fetch_quora_via_apify(cfg)
-    source_stats[quora_result.source] = {"fetched": len(quora_result.rows), "failed": len(quora_result.failures)}
-    all_failures.extend(quora_result.failures)
-    if not quora_result.rows:
-        quora_result = _fetch_quora_via_search(cfg)
-        source_stats[quora_result.source] = {
-            "fetched": len(quora_result.rows),
-            "failed": len(quora_result.failures),
-        }
+            if reddit_primary.rows:
+                reddit_result = reddit_primary
+            else:
+                reddit_secondary = _fetch_reddit_via_apify(cfg)
+                source_stats[reddit_secondary.source] = {
+                    "fetched": len(reddit_secondary.rows),
+                    "failed": len(reddit_secondary.failures),
+                }
+                all_failures.extend(reddit_secondary.failures)
+                reddit_result = reddit_secondary
+
+        quora_result = _fetch_quora_via_apify(cfg)
+        source_stats[quora_result.source] = {"fetched": len(quora_result.rows), "failed": len(quora_result.failures)}
         all_failures.extend(quora_result.failures)
+        if not quora_result.rows:
+            quora_result = _fetch_quora_via_search(cfg)
+            source_stats[quora_result.source] = {
+                "fetched": len(quora_result.rows),
+                "failed": len(quora_result.failures),
+            }
+            all_failures.extend(quora_result.failures)
 
-    rows = _dedupe_by_url(reddit_result.rows + quora_result.rows)
+        rows = _dedupe_by_url(reddit_result.rows + quora_result.rows)
 
-    if not rows and settings.allow_fallback_seed_data:
-        rows = _seed_posts()
-        source_stats["fallback_seed"] = {"fetched": len(rows), "failed": 0}
+        if not rows and settings.allow_fallback_seed_data:
+            rows = _seed_posts()
+            source_stats["fallback_seed"] = {"fetched": len(rows), "failed": 0}
 
-    fetched_count = len(rows)
+        fetched_count = len(rows)
 
-    created = 0
-    for post in rows:
-        exists = db.query(ScrapedPost).filter(ScrapedPost.url == post["url"]).first()
-        if exists:
-            continue
+        created = 0
+        for post in rows:
+            exists = db.query(ScrapedPost).filter(ScrapedPost.url == post["url"]).first()
+            if exists:
+                continue
 
-        db.add(
-            ScrapedPost(
-                source=post["source"],
-                title=post["title"],
-                body=post["body"],
-                score=post["score"],
-                url=post["url"],
-                scraped_at=datetime.now(timezone.utc),
-                category_tag=_classify_topic(f"{post['title']} {post['body']}"),
+            db.add(
+                ScrapedPost(
+                    source=post["source"],
+                    title=post["title"],
+                    body=post["body"],
+                    score=post["score"],
+                    url=post["url"],
+                    scraped_at=datetime.now(timezone.utc),
+                    category_tag=_classify_topic(f"{post['title']} {post['body']}"),
+                )
             )
-        )
-        created += 1
+            created += 1
 
-    status = "success" if created > 0 else "partial"
-    _finish_run_record(
-        db,
-        run=run,
-        status=status,
-        fetched=fetched_count,
-        created=created,
-        source_stats=source_stats,
-        failures=all_failures,
-    )
-    return ScrapeExecutionResult(run_id=run.id, created=created, fetched=fetched_count, status=status)
+        status = "success" if created > 0 else "partial"
+        _finish_run_record(
+            db,
+            run=run,
+            status=status,
+            fetched=fetched_count,
+            created=created,
+            source_stats=source_stats,
+            failures=all_failures,
+        )
+        return ScrapeExecutionResult(run_id=run.id, created=created, fetched=fetched_count, status=status)
+    finally:
+        _SCRAPE_RUN_LOCK.release()
 
 
 def list_scrape_runs(db: Session, limit: int = 20) -> list[ScrapeRun]:
