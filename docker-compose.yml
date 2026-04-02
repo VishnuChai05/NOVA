@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: nova-backend
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      - DATABASE_URL=sqlite:////data/ohsou.db
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
+    volumes:
+      - nova_data:/data
+      - nova_logs:/app/.logs
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+        VITE_API_KEY: ${VITE_API_KEY:-}
+    container_name: nova-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  nova_data:
+  nova_logs:
