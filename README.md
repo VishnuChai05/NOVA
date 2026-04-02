@@ -91,6 +91,24 @@ chmod +x scripts/deploy.sh scripts/update.sh
 
 For full VPS setup and HTTPS notes, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
+## Deploy (Railway Path)
+
+Railway is also a good fit if you want managed infrastructure without running your own VPS.
+
+Recommended Railway layout:
+
+- Backend service from `backend/Dockerfile`
+- Frontend as a Railway Static Site or separate frontend service
+- Railway Postgres for production data
+
+Important:
+
+- Set `DATABASE_URL` from Railway Postgres for the backend service.
+- Set `VITE_API_URL` in the frontend build to your backend service URL.
+- The backend container now listens on Railway's `$PORT` automatically.
+
+See [RAILWAY.md](RAILWAY.md) for the step-by-step setup.
+
 ## API Endpoints
 
 | Method | Path | Auth | Purpose |

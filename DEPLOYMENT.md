@@ -108,3 +108,5 @@ Both scripts run a health check against `http://127.0.0.1/api/health` and print 
 - SQLite is persisted in Docker volume `nova_data`.
 - Backend logs are persisted in Docker volume `nova_logs`.
 - For larger scale or multiple backend replicas, migrate from SQLite to Postgres.
+
+If you want managed deployment instead of a self-hosted VPS, see [RAILWAY.md](RAILWAY.md).
