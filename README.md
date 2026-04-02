@@ -77,6 +77,18 @@ docker compose --env-file .env.production up -d --build
 
 Then open your server domain (or server IP) and verify API health at `/api/health`.
 
+### One-command deploy/update helpers
+
+```bash
+chmod +x scripts/deploy.sh scripts/update.sh
+
+# first-time deploy
+./scripts/deploy.sh .env.production
+
+# later updates
+./scripts/update.sh .env.production
+```
+
 For full VPS setup and HTTPS notes, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## API Endpoints

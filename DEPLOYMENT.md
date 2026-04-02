@@ -81,6 +81,28 @@ git pull
 sudo docker compose --env-file .env.production up -d --build
 ```
 
+## 8. One-command helper scripts
+
+Run once:
+
+```bash
+chmod +x scripts/deploy.sh scripts/update.sh
+```
+
+First deployment:
+
+```bash
+./scripts/deploy.sh .env.production
+```
+
+Subsequent updates:
+
+```bash
+./scripts/update.sh .env.production
+```
+
+Both scripts run a health check against `http://127.0.0.1/api/health` and print backend logs automatically if health fails.
+
 ## Notes
 
 - SQLite is persisted in Docker volume `nova_data`.
