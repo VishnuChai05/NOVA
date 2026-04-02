@@ -43,6 +43,16 @@ def _normalize_sqlite_url(database_url: str) -> str:
     return normalized
 
 
+def _normalize_postgres_url(database_url: str) -> str:
+    # Railway commonly provides postgres:// or postgresql:// URLs.
+    # Force SQLAlchemy to use psycopg (v3) instead of defaulting to psycopg2.
+    if database_url.startswith("postgres://"):
+        return "postgresql+psycopg://" + database_url[len("postgres://") :]
+    if database_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + database_url[len("postgresql://") :]
+    return database_url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILES, env_file_encoding="utf-8", extra="ignore")
 
@@ -84,6 +94,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _normalize_database_url(self) -> "Settings":
+        self.database_url = _normalize_postgres_url(self.database_url)
         self.database_url = _normalize_sqlite_url(self.database_url)
         return self
 
