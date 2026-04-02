@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "shell",
+  "packages": {
+    "python": "3.11"
+  },
+  "steps": {
+    "install": {
+      "commands": [
+        "cd backend && python -m pip install --upgrade pip",
+        "cd backend && python -m pip install -e ."
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "cd backend && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+  }
+}

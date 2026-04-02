@@ -10,7 +10,7 @@ export default [
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
-      globals: { window: "readonly", document: "readonly" },
+      globals: { window: "readonly", document: "readonly", console: "readonly", Blob: "readonly", URL: "readonly" },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     settings: { react: { version: "detect" } },

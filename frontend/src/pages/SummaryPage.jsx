@@ -1,37 +1,27 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import { blogCount, refreshBlogCount } from "../lib/api";
+import useApi from "../lib/useApi";
 
 export default function SummaryPage() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-
-  const load = async () => {
-    try {
-      const res = await blogCount();
-      setData(res.data);
-      setError("");
-    } catch {
-      setError("Could not load blog count. Try refresh.");
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
+  const fetchBlogCount = useCallback(() => blogCount(), []);
+  const { data, loading, error, reload } = useApi(fetchBlogCount);
 
   const onRefresh = async () => {
     await refreshBlogCount();
-    await load();
+    await reload();
   };
 
   return (
     <div>
       <h2>Summary</h2>
       <button onClick={onRefresh}>Refresh Blog Index</button>
-      {error && <p>{error}</p>}
+
+      {loading && <p className="page-loading">Loading summary...</p>}
+      {error && <p className="msg-error mt-sm">{error}</p>}
+
       {data && (
-        <div className="grid" style={{ marginTop: 12 }}>
+        <div className="grid mt-sm">
           <div className="card">
             <strong>Total Blogs</strong>
             <p>{data.total}</p>

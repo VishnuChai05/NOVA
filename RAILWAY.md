@@ -16,9 +16,13 @@ This is the easiest managed deployment path for NOVA if you do not want to run y
 4. Add a Postgres database.
 5. Add a frontend service or Static Site.
 
+If Railway is analyzing the repository root, it can now use the root `start.sh` and `railpack.json` files to build and start the backend.
+
 ## 2. Backend service settings
 
-Use the backend Dockerfile.
+Preferred: use the backend Dockerfile.
+
+Fallback: if Railway is set to build from the repo root, the new root `start.sh` and `railpack.json` will install backend Python dependencies and start Uvicorn.
 
 Set these environment variables on the backend service:
 

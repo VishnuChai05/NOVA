@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from app.core.settings import settings
 from app.db.session import SessionLocal
+from app.services.compliance import run_compliance_maintenance
 from app.services.scraper import ConcurrentScrapeError, run_scrape
 
 logger = logging.getLogger(__name__)
@@ -52,14 +53,22 @@ def _scrape_loop() -> None:
             with _state_lock:
                 _last_run_status = "skipped_busy"
             logger.warning("Skipping scheduled scrape because another scrape is already running")
-        except Exception:  # noqa: BLE001
+        except Exception:
             with _state_lock:
                 _last_run_status = "failed"
-            logger.exception("Continuous scrape run failed")
+            logger.exception("Continuous scrape run failed with unexpected error")
         finally:
             with _state_lock:
                 global _last_run_finished_at
                 _last_run_finished_at = datetime.now(timezone.utc)
+
+            try:
+                purged_count = run_compliance_maintenance(db)
+                if purged_count:
+                    logger.info("Compliance purge removed %s old scraped rows", purged_count)
+            except Exception:
+                logger.exception("Compliance maintenance failed")
+
             db.close()
 
         elapsed = time.monotonic() - started_at

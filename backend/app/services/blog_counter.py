@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime, timezone
+from functools import lru_cache
 
 import httpx
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.blog_post_index import BlogPostIndex
 
 WP_POSTS_URL = "https://blog.ohsou.com/wp-json/wp/v2/posts"
+WP_CATEGORIES_URL = "https://blog.ohsou.com/wp-json/wp/v2/categories"
 
 CATEGORY_MAP = {
     "bra": "bra",
@@ -21,9 +23,57 @@ def _normalize_category(raw: str) -> str:
     return CATEGORY_MAP.get(value, "other")
 
 
+@lru_cache(maxsize=1)
+def _load_wordpress_category_lookup() -> dict[int, str]:
+    params = {"per_page": 100, "page": 1}
+    lookup: dict[int, str] = {}
+
+    with httpx.Client(timeout=20) as client:
+        while True:
+            response = client.get(WP_CATEGORIES_URL, params=params)
+            response.raise_for_status()
+            batch = response.json()
+            if not batch:
+                break
+
+            for item in batch:
+                if not isinstance(item, dict):
+                    continue
+                category_id = item.get("id")
+                if not isinstance(category_id, int):
+                    continue
+                slug = _normalize_category(str(item.get("slug", "")))
+                name = _normalize_category(str(item.get("name", "")))
+                lookup[category_id] = slug if slug != "other" else name
+                if lookup[category_id] == "other":
+                    lookup[category_id] = "other"
+
+            total_pages = int(response.headers.get("X-WP-TotalPages", "1"))
+            if params["page"] >= total_pages:
+                break
+            params["page"] += 1
+
+    return lookup
+
+
+def _resolve_post_category(category_ids: list[object], category_lookup: dict[int, str]) -> str:
+    for raw_category_id in category_ids:
+        try:
+            category_id = int(raw_category_id)
+        except (TypeError, ValueError):
+            continue
+
+        resolved = category_lookup.get(category_id, "other")
+        if resolved != "other":
+            return resolved
+
+    return "other"
+
+
 def refresh_blog_index(db: Session) -> None:
     params = {"per_page": 100, "page": 1}
     posts: list[dict] = []
+    category_lookup = _load_wordpress_category_lookup()
 
     with httpx.Client(timeout=20) as client:
         while True:
@@ -44,7 +94,7 @@ def refresh_blog_index(db: Session) -> None:
         slug = post.get("slug", "")
         title = (post.get("title") or {}).get("rendered", "")
         categories = post.get("categories") or []
-        category = _normalize_category(str(categories[0]) if categories else "")
+        category = _resolve_post_category(list(categories), category_lookup)
 
         db.add(
             BlogPostIndex(

@@ -20,6 +20,7 @@ export default function EngineStudioPage() {
   const [catalog, setCatalog] = useState("bras, panties, shapewear");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
 
   const helper = useMemo(() => {
     if (engine === "blog") {
@@ -34,35 +35,29 @@ export default function EngineStudioPage() {
   const onRun = async () => {
     setLoading(true);
     setResult(null);
+    setError("");
     try {
+      let res;
       if (engine === "blog") {
-        const res = await runBlogMaker({
-          brief,
-          target_audience: audience,
-          brand_name: "oh so u",
-          seo_focus_keyword: keyword,
-          llm_provider: provider,
+        res = await runBlogMaker({
+          brief, target_audience: audience, brand_name: "NOVA",
+          seo_focus_keyword: keyword, llm_provider: provider,
         });
-        setResult(res.data);
       } else if (engine === "script") {
-        const res = await runScriptGenerator({
-          brief,
-          target_audience: audience,
-          brand_name: "oh so u",
-          campaign_goal: goal,
-          llm_provider: provider,
+        res = await runScriptGenerator({
+          brief, target_audience: audience, brand_name: "NOVA",
+          campaign_goal: goal, llm_provider: provider,
         });
-        setResult(res.data);
       } else {
-        const res = await runProductRange({
-          brief,
-          target_audience: audience,
-          brand_name: "oh so u",
-          current_catalog_summary: catalog,
-          llm_provider: provider,
+        res = await runProductRange({
+          brief, target_audience: audience, brand_name: "NOVA",
+          current_catalog_summary: catalog, llm_provider: provider,
         });
-        setResult(res.data);
       }
+      setResult(res.data);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === "string" && detail.trim() ? detail : "Engine run failed.");
     } finally {
       setLoading(false);
     }
@@ -74,12 +69,12 @@ export default function EngineStudioPage() {
         <p className="eyebrow">Engine Studio</p>
         <h2>Build Content, Campaign Scripts, and Product Range Strategy</h2>
         <p>
-          A three-part backend engine for oh so u: blog maker, full production script generator, and product line
+          A three-part backend engine for NOVA: blog maker, full production script generator, and product line
           expansion intelligence.
         </p>
       </section>
 
-      <div className="card" style={{ marginTop: 12 }}>
+      <div className="card mt-sm">
         <div className="pill-row">
           {ENGINE_TYPES.map((item) => (
             <button
@@ -92,7 +87,7 @@ export default function EngineStudioPage() {
           ))}
         </div>
 
-        <p style={{ marginTop: 10 }}>{helper}</p>
+        <p className="mt-sm">{helper}</p>
 
         <div className="engine-form">
           <label>
@@ -138,18 +133,19 @@ export default function EngineStudioPage() {
           <button onClick={onRun} disabled={loading}>
             {loading ? "Generating..." : "Run Engine"}
           </button>
+          {error && <p className="msg-error">{error}</p>}
         </div>
       </div>
 
       {result && (
-        <div className="card" style={{ marginTop: 12 }}>
+        <div className="card mt-sm">
           <p className="eyebrow">{result.engine.replace("_", " ")}</p>
           <p>
             Provider: <strong>{result.provider_used}</strong>
             {result.used_fallback ? " (fallback used)" : ""}
           </p>
           <h3>{result.title}</h3>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{result.content}</pre>
+          <pre className="output-pre">{result.content}</pre>
         </div>
       )}
     </div>

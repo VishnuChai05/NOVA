@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.security import require_operational_api_key
@@ -37,8 +37,16 @@ def generate(payload: GenerateRequest, db: Session = Depends(get_db)) -> Generat
 
 
 @router.get("/outputs", response_model=list[GeneratedOutputOut])
-def list_outputs(db: Session = Depends(get_db)) -> list[GeneratedOutputOut]:
-    rows = db.query(GeneratedOutput).order_by(GeneratedOutput.generated_at.desc()).all()
+def list_outputs(
+    skip: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[GeneratedOutputOut]:
+    query = db.query(GeneratedOutput).order_by(GeneratedOutput.generated_at.desc()).offset(skip)
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = query.all()
     return [GeneratedOutputOut.model_validate(row) for row in rows]
 
 
@@ -52,3 +60,24 @@ def update_output_status(output_id: str, payload: UpdateStatusRequest, db: Sessi
     db.commit()
     db.refresh(output)
     return GeneratedOutputOut.model_validate(output)
+
+
+@router.delete("/outputs/{output_id}")
+def delete_output(output_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
+    output = db.query(GeneratedOutput).filter(GeneratedOutput.id == output_id).first()
+    if not output:
+        raise HTTPException(status_code=404, detail="Output not found")
+
+    deleted_evaluations = (
+        db.query(EvaluationResult)
+        .filter(EvaluationResult.output_id == output_id)
+        .delete(synchronize_session=False)
+    )
+    db.delete(output)
+    db.commit()
+
+    return {
+        "deleted": True,
+        "output_id": output_id,
+        "deleted_evaluations": deleted_evaluations,
+    }
