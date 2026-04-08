@@ -1,34 +1,43 @@
 import json
 import re
+from datetime import datetime, timezone
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import require_operational_api_key
 from app.db.session import get_db
 from app.models.evaluation_result import EvaluationResult
 from app.models.generated_output import GeneratedOutput
+from app.models.scrape_job import ScrapeJob
 from app.models.scraped_insight import ScrapedInsight
 from app.models.scraped_post import ScrapedPost
 from app.schemas.scrape import (
+    ScrapeJobRunAcceptedOut,
+    ScrapeJobStatusOut,
     ScraperConfigIn,
     ScraperConfigOut,
     ScrapedInsightOut,
     ScrapedKeywordCandidateOut,
     ScrapedPostOut,
     ScrapeRunOut,
-    ScrapeRunResponse,
     ScrapeSchedulerIntervalIn,
     ScrapeSchedulerStatusOut,
 )
 from app.services.content_validator import derive_template_insight
+from app.services.scraped_data_processor import ScrapedDataProcessor
+from app.services.scrape_jobs import enqueue_scrape_job
+from app.services.scrape_jobs import reconcile_orphaned_scrape_jobs
 from app.services.scrape_scheduler import (
     get_scrape_scheduler_status,
     set_scrape_interval_minutes,
     start_continuous_scraper,
     stop_continuous_scraper,
 )
-from app.services.scraper import ConcurrentScrapeError, list_scrape_runs, run_scrape
+from app.services.scraper import list_scrape_runs
 from app.services.scraper import ScraperConfig, get_scraper_config, save_scraper_config
 
 router = APIRouter(tags=["scrape"], dependencies=[Depends(require_operational_api_key)])
@@ -96,19 +105,93 @@ def _is_generic_insight(topic: str, suggestions: list[str]) -> bool:
     return not normalized_topic or normalized_topic == "other"
 
 
-@router.post("/scrape/run", response_model=ScrapeRunResponse)
-def trigger_scrape(db: Session = Depends(get_db)) -> ScrapeRunResponse:
-    try:
-        result = run_scrape(db)
-    except ConcurrentScrapeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+@router.post("/scrape/run", response_model=ScrapeJobRunAcceptedOut, status_code=202)
+def trigger_scrape(source_type: Literal["all", "social", "web"] = Query(default="all"), db: Session = Depends(get_db)) -> ScrapeJobRunAcceptedOut:
+    reconcile_orphaned_scrape_jobs(db)
 
-    return ScrapeRunResponse(
-        run_id=result.run_id,
-        created=result.created,
-        fetched=result.fetched,
-        status=result.status,
-        message=result.message,
+    active = (
+        db.query(ScrapeJob)
+        .filter(ScrapeJob.status.in_(["pending", "running"]), ScrapeJob.source_type == source_type)
+        .order_by(ScrapeJob.created_at.desc())
+        .first()
+    )
+    if active is not None:
+        raise HTTPException(status_code=409, detail=f"A {source_type} scrape job is already running")
+
+    job = ScrapeJob(status="pending", source_type=source_type, progress_pct=0, message="Queued")
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    try:
+        enqueue_scrape_job(job.id)
+    except Exception as exc:  # noqa: BLE001
+        job.status = "failed"
+        job.progress_pct = 100
+        job.message = f"Failed to enqueue scrape job: {exc}"
+        job.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=job.message) from exc
+
+    return ScrapeJobRunAcceptedOut(job_id=job.id, status=job.status, source_type=job.source_type)
+
+
+@router.get("/scrape/status/current", response_model=ScrapeJobStatusOut)
+def get_active_scrape_job_status(source_type: str = Query(default="all"), db: Session = Depends(get_db)) -> ScrapeJobStatusOut:
+    reconcile_orphaned_scrape_jobs(db)
+
+    job = (
+        db.query(ScrapeJob)
+        .filter(ScrapeJob.status.in_(["pending", "running"]), ScrapeJob.source_type == source_type)
+        .order_by(ScrapeJob.created_at.desc())
+        .first()
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="No active scrape job found")
+
+    parsed_result: dict | None = None
+    if job.result_json:
+        try:
+            loaded = json.loads(job.result_json)
+            if isinstance(loaded, dict):
+                parsed_result = loaded
+        except json.JSONDecodeError:
+            parsed_result = None
+
+    return ScrapeJobStatusOut(
+        job_id=job.id,
+        status=job.status,
+        source_type=job.source_type,
+        progress_pct=job.progress_pct,
+        message=job.message,
+        result=parsed_result,
+    )
+
+
+@router.get("/scrape/status/{job_id}", response_model=ScrapeJobStatusOut)
+def get_scrape_job_status(job_id: str, db: Session = Depends(get_db)) -> ScrapeJobStatusOut:
+    reconcile_orphaned_scrape_jobs(db)
+
+    job = db.query(ScrapeJob).filter(ScrapeJob.id == job_id).first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Scrape job not found")
+
+    parsed_result: dict | None = None
+    if job.result_json:
+        try:
+            loaded = json.loads(job.result_json)
+            if isinstance(loaded, dict):
+                parsed_result = loaded
+        except json.JSONDecodeError:
+            parsed_result = None
+
+    return ScrapeJobStatusOut(
+        job_id=job.id,
+        status=job.status,
+        source_type=job.source_type,
+        progress_pct=job.progress_pct,
+        message=job.message,
+        result=parsed_result,
     )
 
 
@@ -118,12 +201,27 @@ def list_scraped_posts(
     limit: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[ScrapedPostOut]:
-    query = db.query(ScrapedPost).order_by(ScrapedPost.scraped_at.desc()).offset(skip)
-    if limit is not None:
-        query = query.limit(limit)
+    # Apply quality filtering at read-time so legacy garbage rows (e.g., binary JFIF artifacts)
+    # are hidden from API consumers without requiring immediate destructive cleanup.
+    fetch_cap = max(200, (limit or 100))
+    candidates = (
+        db.query(ScrapedPost)
+        .order_by(func.coalesce(ScrapedPost.published_at, ScrapedPost.scraped_at).desc(), ScrapedPost.scraped_at.desc())
+        .offset(skip)
+        .limit(fetch_cap)
+        .all()
+    )
 
-    rows = query.all()
-    return [ScrapedPostOut.model_validate(row) for row in rows]
+    quality_rows = [
+        row
+        for row in candidates
+        if ScrapedDataProcessor.is_quality_post({"title": row.title, "body": row.body})
+    ]
+
+    if limit is not None:
+        quality_rows = quality_rows[:limit]
+
+    return [ScrapedPostOut.model_validate(row) for row in quality_rows]
 
 
 @router.delete("/scraped-posts/{post_id}")

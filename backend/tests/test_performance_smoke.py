@@ -10,8 +10,8 @@ import app.api.routes.scrape as scrape_routes
 from app.core.settings import settings
 from app.db.session import SessionLocal
 from app.main import app
+from app.models.scrape_job import ScrapeJob
 from app.models.scraped_post import ScrapedPost
-from app.services.scraper import ScrapeExecutionResult
 
 
 def _headers() -> dict[str, str]:
@@ -45,25 +45,22 @@ def _seed_post_if_missing(url: str = "https://example.com/perf-topic") -> str:
 def test_scrape_endpoint_performance_smoke(monkeypatch) -> None:
     monkeypatch.setattr(settings, "api_auth_enabled", True)
     monkeypatch.setattr(settings, "operational_api_key", "test-api-key")
-
-    def fake_run_scrape(db) -> ScrapeExecutionResult:
-        return ScrapeExecutionResult(
-            run_id="perf-smoke-run",
-            created=0,
-            fetched=0,
-            status="partial",
-            message="No posts found. Try adjusting your queries or domains in Settings.",
-        )
-
-    monkeypatch.setattr(scrape_routes, "run_scrape", fake_run_scrape)
+    monkeypatch.setattr(scrape_routes, "enqueue_scrape_job", lambda job_id: "rq-job-1")
 
     timings: list[float] = []
     with TestClient(app) as client:
         for _ in range(20):
+            db = SessionLocal()
+            try:
+                db.query(ScrapeJob).delete()
+                db.commit()
+            finally:
+                db.close()
+
             start = perf_counter()
             resp = client.post("/api/scrape/run", headers=_headers())
             timings.append(perf_counter() - start)
-            assert resp.status_code == 200
+            assert resp.status_code == 202
 
     assert mean(timings) < 0.12
 

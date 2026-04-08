@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   deleteScrapedPost,
   generateOutput,
-  listScrapeRuns,
+  getActiveScrapeJobStatus,
   listScrapedInsights,
   listScrapedKeywordCandidates,
   listScrapedPosts,
@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { downloadAsWordDocument } from '../lib/documentExport';
 import useApi from '../lib/useApi';
+import useScrapeJobProgress from '../lib/useScrapeJobProgress';
 
 const POSTS_PAGE_SIZE = 100;
 const INSIGHTS_PAGE_SIZE = 12;
@@ -18,6 +19,7 @@ const INSIGHTS_PAGE_SIZE = 12;
 export default function TopicsPage() {
   const [postsPage, setPostsPage] = useState(1);
   const [insightsPage, setInsightsPage] = useState(1);
+  const [runCooldownUntil, setRunCooldownUntil] = useState(0);
 
   const fetchTopicsData = useCallback(async () => {
     const [postsRes, insightsRes, candidatesRes] = await Promise.all([
@@ -33,13 +35,19 @@ export default function TopicsPage() {
   }, [insightsPage, postsPage]);
   const { data, loading, error: loadError, reload } = useApi(fetchTopicsData);
 
-  const [isScraping, setIsScraping] = useState(false);
-  const [status, setStatus] = useState('');
+  const [isScrapingSocial, setIsScrapingSocial] = useState(false);
+  const [activeSocialJobId, setActiveSocialJobId] = useState(null);
+  const [socialStatus, setSocialStatus] = useState('');
+
+  const [isScrapingWeb, setIsScrapingWeb] = useState(false);
+  const [activeWebJobId, setActiveWebJobId] = useState(null);
+  const [webStatus, setWebStatus] = useState('');
+
   const [error, setError] = useState('');
   const [actionStatus, setActionStatus] = useState('');
   const [filterSource, setFilterSource] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [sortBy, setSortBy] = useState('date');
+  const [sortBy, setSortBy] = useState('scraped_newest');
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [isDeletingPost, setIsDeletingPost] = useState(false);
   const [isGeneratingBlog, setIsGeneratingBlog] = useState(false);
@@ -47,62 +55,68 @@ export default function TopicsPage() {
   const [generatedBlog, setGeneratedBlog] = useState(null);
   const [generatedSuggestions, setGeneratedSuggestions] = useState(null);
 
-  const latestRunId = async () => {
-    const res = await listScrapeRuns();
-    return res.data?.[0]?.id || null;
-  };
+  const scrapeJobSocial = useScrapeJobProgress(activeSocialJobId, {
+    enabled: Boolean(activeSocialJobId),
+    pollIntervalMs: 2500,
+    onComplete: async () => {
+      await reload();
+      setIsScrapingSocial(false);
+      setActiveSocialJobId(null);
+    },
+  });
 
-  const waitForNextCompletedRun = async (previousRunId) => {
-    const timeoutMs = 180000;
-    const pollMs = 3000;
-    const startedAt = Date.now();
+  const scrapeJobWeb = useScrapeJobProgress(activeWebJobId, {
+    enabled: Boolean(activeWebJobId),
+    pollIntervalMs: 2500,
+    onComplete: async () => {
+      await reload();
+      setIsScrapingWeb(false);
+      setActiveWebJobId(null);
+    },
+  });
 
-    while (Date.now() - startedAt < timeoutMs) {
-      const currentRunId = await latestRunId();
-      if (currentRunId && currentRunId !== previousRunId) {
-        return true;
-      }
-      await new Promise((resolve) => globalThis.setTimeout(resolve, pollMs));
+  const runAction = async (type, isScrapingState, setIsScrapingState, setJobId, setStatusState) => {
+    const now = Date.now();
+    if (now < runCooldownUntil || isScrapingState) {
+      return;
     }
-    return false;
-  };
 
-  const onRun = async () => {
-    setIsScraping(true);
+    setRunCooldownUntil(now + 1000);
+    setIsScrapingState(true);
     setError('');
-    setStatus('Scraper is running. This can take up to a minute...');
+    setStatusState(`Queueing ${type} scrape job...`);
 
     try {
-      const response = await runScrape();
+      const response = await runScrape(type);
       await reload();
+      setJobId(response.data?.job_id || null);
+      setStatusState(`${type} scrape job queued. Polling progress...`);
 
-      if (response.data?.created === 0 && response.data?.message) {
-        setStatus(response.data.message);
-      } else {
-        setStatus('Scrape completed and topics updated.');
-      }
     } catch (e) {
       if (e?.response?.status === 409) {
         setError('');
-        setStatus('A scrape is already running. Waiting for it to finish...');
-        const prevRunId = await latestRunId();
-        const completed = await waitForNextCompletedRun(prevRunId);
-        await reload();
-        setStatus(completed
-          ? 'Background scrape finished and topics updated.'
-          : 'Still running in background. Topics were refreshed.');
+        try {
+          const activeRes = await getActiveScrapeJobStatus(type);
+          setJobId(activeRes.data?.job_id || null);
+          setStatusState('A scrape is already running. Resuming progress updates...');
+        } catch {
+          setStatusState('A scrape is already running. Progress will refresh once it is visible again.');
+        }
       } else if (e?.code === 'ECONNABORTED') {
-        setStatus('Scraper is taking longer than expected. Refresh in a moment.');
+        setStatusState('Scraper is taking longer than expected. Refresh in a moment.');
         setError('');
       } else {
         const detail = e?.response?.data?.detail;
-        setStatus('');
+        setStatusState('');
         setError(typeof detail === 'string' && detail.trim() ? detail : 'Failed to run scraper.');
       }
     } finally {
-      setIsScraping(false);
+      setIsScrapingState(false);
     }
   };
+
+  const onRunSocial = () => runAction('social', isScrapingSocial, setIsScrapingSocial, setActiveSocialJobId, setSocialStatus);
+  const onRunWeb = () => runAction('web', isScrapingWeb, setIsScrapingWeb, setActiveWebJobId, setWebStatus);
 
   const allRows = data?.posts || [];
   const insights = data?.insights || [];
@@ -111,6 +125,19 @@ export default function TopicsPage() {
   const categories = ['all', ...new Set(allRows.map(r => r.category_tag))].sort();
   const hasNextPostsPage = allRows.length === POSTS_PAGE_SIZE;
   const hasNextInsightsPage = insights.length === INSIGHTS_PAGE_SIZE;
+
+  const extractProgress = (job) => {
+    const activeProgressPct = Number(job.progress_pct || 0);
+    const activeProgressMessage = job.message || 'Waiting for scrape status...';
+    let activeProgressLabel = 'Scrape idle';
+    if (job.status === 'done') activeProgressLabel = 'Scrape finished';
+    else if (job.status === 'failed') activeProgressLabel = 'Scrape failed';
+    else if (job.status === 'running' || job.status === 'pending') activeProgressLabel = 'Scrape in progress';
+    return { activeProgressPct, activeProgressMessage, activeProgressLabel };
+  };
+
+  const { activeProgressPct: activeSocialProgressPct, activeProgressMessage: activeSocialProgressMessage, activeProgressLabel: activeSocialProgressLabel } = extractProgress(scrapeJobSocial);
+  const { activeProgressPct: activeWebProgressPct, activeProgressMessage: activeWebProgressMessage, activeProgressLabel: activeWebProgressLabel } = extractProgress(scrapeJobWeb);
 
   const formatDate = (isoString) => {
     try {
@@ -121,6 +148,26 @@ export default function TopicsPage() {
     } catch {
       return 'Invalid date';
     }
+  };
+
+  const postDateValue = (row) => {
+    const sourceDate = row?.published_at || row?.scraped_at;
+    const parsed = new Date(sourceDate);
+    if (Number.isNaN(parsed.getTime())) return 0;
+    return parsed.getTime();
+  };
+
+  const scrapedDateValue = (row) => {
+    const parsed = new Date(row?.scraped_at);
+    if (Number.isNaN(parsed.getTime())) return 0;
+    return parsed.getTime();
+  };
+
+  const displayPostDate = (row) => {
+    if (row?.published_at) {
+      return formatDate(row.published_at);
+    }
+    return formatDate(row?.scraped_at);
   };
 
   const parseInsightSuggestions = (insight) => {
@@ -216,7 +263,9 @@ export default function TopicsPage() {
   filtered = [...filtered].sort((a, b) => {
     if (sortBy === 'score') return b.score - a.score;
     if (sortBy === 'title') return a.title.localeCompare(b.title);
-    return new Date(b.scraped_at) - new Date(a.scraped_at);
+    if (sortBy === 'date_newest') return postDateValue(b) - postDateValue(a);
+    if (sortBy === 'date_oldest') return postDateValue(a) - postDateValue(b);
+    return scrapedDateValue(b) - scrapedDateValue(a);
   });
 
   const selectedPost = filtered.find((item) => item.id === selectedPostId) || null;
@@ -233,23 +282,90 @@ export default function TopicsPage() {
     });
   }, [filtered]);
 
+  const syncJobStatus = (job, setStatusFunc, setJobIdFunc, setIsScrapingFunc, label, pct, msg) => {
+    if (job.status === 'done') {
+      setStatusFunc(job.message || 'Scrape finished successfully.');
+      return;
+    }
+    if (job.status === 'failed') {
+      setStatusFunc(job.message || 'Scrape failed.');
+      setError(job.message || 'Scrape failed.');
+      setJobIdFunc(null);
+      setIsScrapingFunc(false);
+      return;
+    }
+    if (job.status === 'running' || job.status === 'pending') {
+      setStatusFunc(`${label}: ${pct}% - ${msg}`);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSocialJobId) {
+      syncJobStatus(scrapeJobSocial, setSocialStatus, setActiveSocialJobId, setIsScrapingSocial, activeSocialProgressLabel, activeSocialProgressPct, activeSocialProgressMessage);
+    }
+  }, [activeSocialJobId, scrapeJobSocial.status, scrapeJobSocial.message, activeSocialProgressLabel, activeSocialProgressPct, activeSocialProgressMessage]);
+
+  useEffect(() => {
+    if (activeWebJobId) {
+      syncJobStatus(scrapeJobWeb, setWebStatus, setActiveWebJobId, setIsScrapingWeb, activeWebProgressLabel, activeWebProgressPct, activeWebProgressMessage);
+    }
+  }, [activeWebJobId, scrapeJobWeb.status, scrapeJobWeb.message, activeWebProgressLabel, activeWebProgressPct, activeWebProgressMessage]);
+
   return (
     <div>
       <h2>Scraped Topics</h2>
-      <button onClick={onRun} disabled={isScraping}>
-        {isScraping ? 'Running Scraper...' : 'Run Scraper'}
-      </button>
+      <div className="action-row mt-sm">
+        <button onClick={onRunSocial} disabled={isScrapingSocial}>
+          {isScrapingSocial ? 'Running Social Scraper...' : 'Run Social Media Scrape'}
+        </button>
+        <button className="secondary" onClick={onRunWeb} disabled={isScrapingWeb}>
+          {isScrapingWeb ? 'Running Web Crawler...' : 'Run Web Crawl'}
+        </button>
+      </div>
 
-      {isScraping && (
-        <div className="inline-loader" role="status" aria-live="polite">
+      {(isScrapingSocial || activeSocialJobId) && (
+        <div className="inline-loader mt-sm" role="status" aria-live="polite">
           <span className="spinner" aria-hidden="true" />
-          <span>Scraper is running and updating topics...</span>
+          <span>{activeSocialProgressLabel}</span>
+        </div>
+      )}
+      {(isScrapingWeb || activeWebJobId) && (
+        <div className="inline-loader mt-sm" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span>{activeWebProgressLabel}</span>
         </div>
       )}
 
-      {loading && <p className="page-loading">Loading topics...</p>}
+      {activeSocialJobId && (
+        <div className="scrape-progress card mt-sm" aria-live="polite">
+          <div className="scrape-progress-head">
+            <strong>[Social] {activeSocialProgressLabel}</strong>
+            <span>{activeSocialProgressPct}%</span>
+          </div>
+          <div className="progress-track" aria-hidden="true">
+            <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, activeSocialProgressPct))}%` }} />
+          </div>
+          <p className="topic-item-subtext">{activeSocialProgressMessage}</p>
+        </div>
+      )}
+
+      {activeWebJobId && (
+        <div className="scrape-progress card mt-sm" aria-live="polite">
+          <div className="scrape-progress-head">
+            <strong>[Web] {activeWebProgressLabel}</strong>
+            <span>{activeWebProgressPct}%</span>
+          </div>
+          <div className="progress-track" aria-hidden="true">
+            <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, activeWebProgressPct))}%` }} />
+          </div>
+          <p className="topic-item-subtext">{activeWebProgressMessage}</p>
+        </div>
+      )}
+
+      {loading && <p className="page-loading mt-sm">Loading topics...</p>}
       {(loadError || error) && <p className="msg-error mt-sm">{loadError || error}</p>}
-      {status && <p className="mt-sm">{status}</p>}
+      {socialStatus && <p className="mt-sm">[Social] {socialStatus}</p>}
+      {webStatus && <p className="mt-sm">[Web] {webStatus}</p>}
       {actionStatus && <p className="msg-success mt-sm">{actionStatus}</p>}
 
       <div className="action-row mt-sm">
@@ -280,7 +396,9 @@ export default function TopicsPage() {
         <label>
           Sort By:
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="date">Newest First</option>
+            <option value="scraped_newest">Newest Scraped First</option>
+            <option value="date_newest">Newest Source Date First</option>
+            <option value="date_oldest">Oldest Source Date First</option>
             <option value="score">Highest Score</option>
             <option value="title">Title (A-Z)</option>
           </select>
@@ -304,7 +422,7 @@ export default function TopicsPage() {
                 <th>Category</th>
                 <th>Score</th>
                 <th>Title</th>
-                <th>Date</th>
+                <th>Source Date</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -315,7 +433,7 @@ export default function TopicsPage() {
                   <td>{r.category_tag}</td>
                   <td><strong>{r.score}</strong></td>
                   <td>{r.title}</td>
-                  <td>{formatDate(r.scraped_at)}</td>
+                  <td>{displayPostDate(r)}</td>
                   <td>
                     <div className="action-row">
                       <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); setSelectedPostId(r.id); onGenerateForSelected('blog', r.id); }} disabled={isGeneratingBlog || !r.id}>
@@ -344,6 +462,7 @@ export default function TopicsPage() {
           <div className="card-body">
             <p><strong>Selected:</strong> {selectedPost.title}</p>
             <p className="topic-item-subtext"><strong>Source:</strong> {selectedPost.source} | <strong>Category:</strong> {selectedPost.category_tag}</p>
+            <p className="topic-item-subtext"><strong>Source Date:</strong> {displayPostDate(selectedPost)} | <strong>Scraped:</strong> {formatDate(selectedPost.scraped_at)}</p>
             <div className="action-row">
               <button type="button" className="secondary" onClick={() => onGenerateForSelected('blog')} disabled={isGeneratingBlog}>
                 {isGeneratingBlog ? 'Generating Blog...' : 'Generate Full Blog'}

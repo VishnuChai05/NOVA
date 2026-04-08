@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from types import SimpleNamespace
 
 import app.services.scraper as scraper_service
@@ -103,6 +104,7 @@ def test_run_scrape_success_persists_run_and_posts(monkeypatch) -> None:
 
     monkeypatch.setattr(scraper_service.settings, "reddit_source_mode", "apify")
     monkeypatch.setattr(scraper_service.settings, "allow_fallback_seed_data", False)
+    monkeypatch.setattr(scraper_service.settings, "scrape_relevance_min_score", 0)
     monkeypatch.setattr(scraper_service, "_load_config", lambda: cfg)
 
     reddit_rows = [
@@ -357,3 +359,84 @@ def test_run_scrape_ingests_blog_crawl_rows_when_enabled(monkeypatch) -> None:
     assert created is not None
     assert created.source == "blog_crawl"
     assert insight is not None
+
+
+def test_run_source_task_with_timeout_returns_failure_for_slow_source() -> None:
+    task = scraper_service.SourceFetchTask(
+        name="quora",
+        timeout_seconds=1,
+        fetch_fn=lambda: SourceFetchResult(source="quora_apify", rows=[], failures=[]),
+    )
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(lambda: (time.sleep(2), SourceFetchResult(source="quora_apify", rows=[], failures=[]))[1])
+        result = scraper_service._run_source_task_with_timeout(task, future)
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    assert result.rows == []
+    assert len(result.failures) == 1
+    assert "timed out" in result.failures[0]
+
+
+def test_run_scrape_continues_when_quora_source_fails(monkeypatch) -> None:
+    _clear_scrape_tables()
+    _stub_run_record_writes(monkeypatch, run_id="run-partial-source-fail")
+
+    cfg = ScraperConfig(
+        subreddits=["TwoXIndia"],
+        quora_queries=["query"],
+        discussion_queries=["forum query"],
+        blog_queries=["blog query"],
+        forum_domains=["reddit.com"],
+        blog_domains=["example.com"],
+        max_posts_per_source=50,
+        min_score=10,
+        run_schedule="0 9 * * 1",
+        crawl_full_blog_domains=False,
+        blog_crawl_max_urls_per_domain=50,
+    )
+
+    monkeypatch.setattr(scraper_service.settings, "reddit_source_mode", "apify")
+    monkeypatch.setattr(scraper_service.settings, "allow_fallback_seed_data", False)
+    monkeypatch.setattr(scraper_service.settings, "scrape_relevance_min_score", 0)
+    monkeypatch.setattr(scraper_service.settings, "scrape_parallel_max_workers", 3)
+    monkeypatch.setattr(scraper_service.settings, "scrape_reddit_timeout_seconds", 30.0)
+    monkeypatch.setattr(scraper_service.settings, "scrape_quora_timeout_seconds", 30.0)
+    monkeypatch.setattr(scraper_service.settings, "scrape_forum_timeout_seconds", 30.0)
+    monkeypatch.setattr(scraper_service.settings, "scrape_blog_timeout_seconds", 30.0)
+    monkeypatch.setattr(scraper_service, "_load_config", lambda: cfg)
+
+    monkeypatch.setattr(
+        scraper_service,
+        "_fetch_reddit_via_apify",
+        lambda _cfg: SourceFetchResult(
+            source="reddit_apify",
+            rows=[
+                {
+                    "source": "reddit",
+                    "title": "Resilient source test title",
+                    "body": "x" * 220,
+                    "score": 22,
+                    "url": "https://reddit.com/source-resilience-1",
+                }
+            ],
+            failures=[],
+        ),
+    )
+    monkeypatch.setattr(scraper_service, "_fetch_quora_via_apify", lambda _cfg: (_ for _ in ()).throw(RuntimeError("quora api down")))
+    monkeypatch.setattr(scraper_service, "_fetch_quora_via_search", lambda _cfg: SourceFetchResult(source="quora_search", rows=[], failures=[]))
+    monkeypatch.setattr(scraper_service, "_crawl_forum_domains", lambda _cfg: SourceFetchResult(source="discussion_forums", rows=[], failures=[]))
+
+    db = SessionLocal()
+    try:
+        result = scraper_service.run_scrape(db)
+    finally:
+        db.close()
+
+    assert result.status == "success"
+    assert result.created == 1
+    assert result.fetched == 1

@@ -13,9 +13,10 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.models.evaluation_result import EvaluationResult
 from app.models.generated_output import GeneratedOutput
+from app.models.scrape_job import ScrapeJob
 from app.models.scraped_insight import ScrapedInsight
 from app.models.scraped_post import ScrapedPost
-from app.services.scraper import ScrapeExecutionResult, ScraperConfig
+from app.services.scraper import ScraperConfig
 
 
 
@@ -88,25 +89,26 @@ def test_scrape_config_validation_is_strict(monkeypatch) -> None:
         assert response.status_code == 422
 
 
-def test_trigger_scrape_response_contract_includes_message(monkeypatch) -> None:
+def test_trigger_scrape_returns_202_job_contract(monkeypatch) -> None:
     monkeypatch.setattr(settings, "api_auth_enabled", True)
     monkeypatch.setattr(settings, "operational_api_key", "test-api-key")
+    monkeypatch.setattr(scrape_routes, "enqueue_scrape_job", lambda job_id: "rq-job-1")
 
-    fake = ScrapeExecutionResult(
-        run_id="run-123",
-        created=0,
-        fetched=0,
-        status="partial",
-        message="No posts found. Try adjusting your queries or domains in Settings.",
-    )
-    monkeypatch.setattr(scrape_routes, "run_scrape", lambda db: fake)
+    init_db()
+    db = SessionLocal()
+    try:
+        db.query(ScrapeJob).delete()
+        db.commit()
+    finally:
+        db.close()
 
     with TestClient(app) as client:
         response = client.post("/api/scrape/run", headers=_headers())
-        assert response.status_code == 200
+        assert response.status_code == 202
         body = response.json()
-        assert set(body.keys()) == {"run_id", "created", "fetched", "status", "message"}
-        assert body["message"] == fake.message
+        assert set(body.keys()) == {"job_id", "status"}
+        assert body["status"] == "pending"
+        assert body["job_id"]
 
 
 def test_scheduler_endpoints_and_interval_validation(monkeypatch) -> None:

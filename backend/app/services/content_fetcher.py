@@ -7,15 +7,23 @@ Responsibilities:
 - Extract meaningful text content from HTML
 """
 
+import json
 import logging
 import re
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable, TypeVar
 
 import httpx
 from bs4 import BeautifulSoup
 
 from app.core.settings import settings
+
+try:
+    import trafilatura
+except ImportError:  # pragma: no cover - optional dependency
+    trafilatura = None
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +103,179 @@ class ContentFetcher:
 
         return self.retry_with_backoff(_fetch, f"fetch {url}")
 
+    @staticmethod
+    def parse_datetime_value(value) -> datetime | None:
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            text = str(value).strip()
+            if not text:
+                return None
+            if text.endswith("Z"):
+                text = f"{text[:-1]}+00:00"
+
+            dt = None
+            try:
+                dt = datetime.fromisoformat(text)
+            except ValueError:
+                try:
+                    dt = parsedate_to_datetime(text)
+                except (TypeError, ValueError):
+                    return None
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    @staticmethod
+    def _extract_title(soup: BeautifulSoup, default_snippet: str = "") -> str:
+        candidates: list[str] = []
+
+        for selector in (
+            'meta[property="og:title"]',
+            'meta[name="twitter:title"]',
+            'meta[name="title"]',
+            'meta[property="article:title"]',
+        ):
+            tag = soup.select_one(selector)
+            if tag:
+                content = (tag.get("content") or tag.get("value") or "").strip()
+                if content:
+                    candidates.append(content)
+
+        if soup.title and soup.title.string:
+            candidates.append(soup.title.string.strip())
+
+        heading = soup.find("h1")
+        if heading:
+            heading_text = heading.get_text(" ", strip=True)
+            if heading_text:
+                candidates.append(heading_text)
+
+        if default_snippet.strip():
+            candidates.append(default_snippet.strip())
+
+        for candidate in candidates:
+            normalized = " ".join(candidate.split()).lower()
+            if not normalized:
+                continue
+            if normalized in {"table of contents", "contents", "menu", "skip to content", "sitemap"}:
+                continue
+            if normalized.startswith("table of contents"):
+                continue
+            return candidate[:180]
+
+        return default_snippet[:180]
+
+    @staticmethod
+    def _extract_published_at(soup: BeautifulSoup) -> datetime | None:
+        selectors = (
+            'meta[property="article:published_time"]',
+            'meta[property="article:modified_time"]',
+            'meta[property="og:updated_time"]',
+            'meta[property="og:published_time"]',
+            'meta[name="pubdate"]',
+            'meta[name="publishdate"]',
+            'meta[name="date"]',
+            'meta[name="article:published_time"]',
+            'meta[itemprop="datePublished"]',
+            'meta[itemprop="dateCreated"]',
+            'meta[itemprop="uploadDate"]',
+            'time[datetime]',
+        )
+
+        for selector in selectors:
+            for tag in soup.select(selector):
+                candidate = tag.get("content") or tag.get("datetime") or tag.get("value") or tag.get_text(" ", strip=True)
+                parsed = ContentFetcher.parse_datetime_value(candidate)
+                if parsed:
+                    return parsed
+
+        for script in soup.select('script[type="application/ld+json"]'):
+            raw = (script.string or script.get_text(strip=True) or "").strip()
+            if not raw:
+                continue
+            try:
+                parsed_json = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            candidates = parsed_json if isinstance(parsed_json, list) else [parsed_json]
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("datePublished", "dateCreated", "uploadDate", "dateModified"):
+                    parsed = ContentFetcher.parse_datetime_value(item.get(key))
+                    if parsed:
+                        return parsed
+
+        return None
+
+    @staticmethod
+    def _extract_body_with_trafilatura(html: str, default_snippet: str = "") -> str:
+        if trafilatura is None:
+            return default_snippet
+
+        try:
+            extracted = trafilatura.extract(
+                html,
+                include_comments=False,
+                include_tables=False,
+                favor_recall=True,
+                output_format="txt",
+            )
+        except Exception:  # noqa: BLE001
+            return default_snippet
+
+        if not extracted:
+            return default_snippet
+
+        body = re.sub(r"\n{3,}", "\n\n", str(extracted).strip())
+        if len(body) < len(default_snippet):
+            return default_snippet
+        return body
+
+    def fetch_page_details(self, url: str, default_snippet: str = "") -> dict[str, object]:
+        if not url:
+            return {"body": default_snippet, "title": "", "published_at": None}
+
+        try:
+            headers = {"User-Agent": getattr(settings, "reddit_user_agent", "nova-scraper/1.0")}
+            with httpx.Client(
+                timeout=getattr(settings, "blog_crawl_timeout_seconds", 10.0),
+                headers=headers,
+                follow_redirects=True,
+            ) as client:
+                response = client.get(url)
+                response.raise_for_status()
+
+            content_type = (response.headers.get("content-type") or "").lower()
+            # Skip media/binary endpoints that can leak image bytes into title/body extraction.
+            if content_type and "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+                return {"body": default_snippet, "title": "", "published_at": None}
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            title = self._extract_title(soup, default_snippet)
+            published_at = self._extract_published_at(soup)
+
+            body = self._extract_body_with_trafilatura(response.text, default_snippet=default_snippet)
+            if body == default_snippet:
+                # Keep the existing BeautifulSoup fallback for edge cases trafilatura misses.
+                for element in soup(["script", "style", "nav", "header", "footer", "aside", "noscript", "meta"]):
+                    element.decompose()
+
+                text = soup.get_text(separator="\n", strip=True)
+                text = re.sub(r"\n{3,}", "\n\n", text)
+                body = default_snippet if len(text) < len(default_snippet) else text
+
+            return {"body": body, "title": title, "published_at": published_at}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Deep fetch failed for {url}: {exc}")
+            return {"body": default_snippet, "title": "", "published_at": None}
+
     def fetch_page_content(self, url: str, default_snippet: str = "") -> str:
         """
         Fetch URL and extract deep HTML body text.
@@ -110,33 +291,4 @@ class ContentFetcher:
         Returns:
             Extracted text or default_snippet
         """
-        if not url:
-            return default_snippet
-
-        try:
-            headers = {"User-Agent": getattr(settings, "reddit_user_agent", "nova-scraper/1.0")}
-            with httpx.Client(
-                timeout=getattr(settings, "blog_crawl_timeout_seconds", 10.0),
-                headers=headers,
-                follow_redirects=True,
-            ) as client:
-                response = client.get(url)
-                response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # Remove noisy non-content elements
-            for element in soup(["script", "style", "nav", "header", "footer", "aside", "noscript", "meta"]):
-                element.decompose()
-
-            text = soup.get_text(separator="\n", strip=True)
-            # Collapse massive whitespace gaps
-            text = re.sub(r"\n{3,}", "\n\n", text)
-
-            # If the scraped body is somehow shorter than the google snippet, fall back to snippet
-            if len(text) < len(default_snippet):
-                return default_snippet
-            return text
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(f"Deep fetch failed for {url}: {exc}")
-            return default_snippet
+        return str(self.fetch_page_details(url, default_snippet=default_snippet)["body"])

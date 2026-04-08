@@ -10,9 +10,23 @@ Women's product brands in India struggle to find authentic, community-driven ins
 
 ## Tech Stack
 
-- **Backend:** Python 3.11, FastAPI, SQLAlchemy (SQLite), PRAW, Apify, httpx
+- **Backend:** Python 3.11, FastAPI, SQLAlchemy, Alembic, PRAW, Apify, httpx
 - **Frontend:** React 18, Vite, React Router, Axios
 - **CI:** GitHub Actions (lint + test + build)
+
+## Deployment Status
+
+NOVA is deployment-ready and includes production configuration for:
+
+- **VPS deployment** via Docker Compose
+- **Railway deployment** for managed backend hosting
+- **Firebase hosting configuration** for frontend hosting workflows
+
+Use these docs based on your target platform:
+
+- [DEPLOYMENT.md](DEPLOYMENT.md) for VPS + Docker Compose
+- [RAILWAY.md](RAILWAY.md) for Railway setup
+- [OPERATIONS.md](OPERATIONS.md) for production operations and troubleshooting
 
 ## Project Structure
 
@@ -43,6 +57,22 @@ pip install -e backend[dev]
 # Copy .env.example to .env and fill in API keys
 uvicorn app.main:app --reload --app-dir backend
 ```
+
+### Background Worker (RQ)
+
+Run Redis and the scrape worker for asynchronous scrape jobs:
+
+```bash
+docker run --name nova-redis -p 6379:6379 -d redis:7-alpine
+cd backend
+python -m app.workers.rq_worker
+```
+
+Worker reads REDIS_URL, SCRAPE_JOB_QUEUE_NAME, and SCRAPE_JOB_TIMEOUT_SECONDS from environment.
+Scrape orchestration also supports SCRAPE_PARALLEL_MAX_WORKERS, SCRAPE_REDDIT_TIMEOUT_SECONDS,
+SCRAPE_QUORA_TIMEOUT_SECONDS, SCRAPE_FORUM_TIMEOUT_SECONDS, and SCRAPE_BLOG_TIMEOUT_SECONDS.
+Phase 3 relevance and classification controls: SCRAPE_RELEVANCE_MIN_SCORE and
+SCRAPE_TOPIC_CLASSIFIER_PROVIDER (template, groq, anthropic).
 
 ### Frontend
 
@@ -134,6 +164,13 @@ pytest backend/tests -v
 # Frontend
 cd frontend && npm test
 ```
+
+
+Schema migrations are now available through Alembic in `backend/alembic`. The app still
+uses `init_db()` for local startup compatibility, but migrations are the preferred path for
+production schema changes.
+
+The local launcher runs `alembic upgrade head` automatically before starting the backend.
 
 ## Operations
 

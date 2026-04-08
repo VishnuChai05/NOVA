@@ -112,6 +112,44 @@ def test_list_endpoints_support_skip_and_limit(monkeypatch) -> None:
         assert runs[0]["total_created"] == 2
 
 
+def test_scraped_posts_use_published_at_for_oldest_first(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "api_auth_enabled", True)
+    monkeypatch.setattr(settings, "operational_api_key", "test-api-key")
+
+    init_db()
+    db = SessionLocal()
+    try:
+        db.query(ScrapedPost).delete()
+        db.commit()
+
+        base_time = datetime.now(timezone.utc)
+        for index in range(3):
+            post = ScrapedPost(
+                source="blog_crawl",
+                title=f"Published order post {index + 1}",
+                body=("Published order body text for testing list endpoints." * 4),
+                score=0,
+                url=f"https://example.com/published-order-{index}-{uuid4().hex}",
+                published_at=base_time - timedelta(days=2 - index),
+                scraped_at=base_time + timedelta(minutes=index),
+                category_tag="bra",
+            )
+            db.add(post)
+        db.commit()
+    finally:
+        db.close()
+
+    with TestClient(app) as client:
+        posts_resp = client.get("/api/scraped-posts?skip=0&limit=3", headers=_headers())
+        assert posts_resp.status_code == 200
+        posts = posts_resp.json()
+        assert [row["title"] for row in posts] == [
+            "Published order post 1",
+            "Published order post 2",
+            "Published order post 3",
+        ]
+
+
 def test_scraped_insights_support_skip_and_limit(monkeypatch) -> None:
     monkeypatch.setattr(settings, "api_auth_enabled", True)
     monkeypatch.setattr(settings, "operational_api_key", "test-api-key")

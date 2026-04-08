@@ -5,6 +5,9 @@ const api = axios.create({
   timeout: 300000,
 });
 
+const scrapeJobStatusCache = new Map();
+const scrapeJobStatusInflight = new Map();
+
 const apiKey = import.meta.env.VITE_API_KEY;
 if (apiKey) {
   api.defaults.headers.common["X-API-Key"] = apiKey;
@@ -13,7 +16,45 @@ if (apiKey) {
 export const health = () => api.get("/health");
 export const blogCount = () => api.get("/blog-count");
 export const refreshBlogCount = () => api.post("/blog-count/refresh");
-export const runScrape = () => api.post("/scrape/run", undefined, { timeout: 600000 });
+export const runScrape = (source_type = "all") => api.post("/scrape/run", undefined, { params: { source_type }, timeout: 600000 });
+export const getScrapeJobStatus = (jobId, { force = false } = {}) => {
+  if (!jobId) {
+    return Promise.reject(new Error("jobId is required"));
+  }
+
+  if (!force) {
+    const cached = scrapeJobStatusCache.get(jobId);
+    if (cached) {
+      return Promise.resolve({ data: cached });
+    }
+
+    const inflight = scrapeJobStatusInflight.get(jobId);
+    if (inflight) {
+      return inflight;
+    }
+  }
+
+  const request = api
+    .get(`/scrape/status/${jobId}`)
+    .then((response) => {
+      scrapeJobStatusCache.set(jobId, response.data);
+      return response;
+    })
+    .finally(() => {
+      scrapeJobStatusInflight.delete(jobId);
+    });
+
+  scrapeJobStatusInflight.set(jobId, request);
+  return request;
+};
+export const getActiveScrapeJobStatus = (source_type = "all") => api.get("/scrape/status/current", { params: { source_type } });
+export const clearScrapeJobStatusCache = (jobId) => {
+  if (jobId) {
+    scrapeJobStatusCache.delete(jobId);
+    scrapeJobStatusInflight.delete(jobId);
+  }
+};
+export const peekScrapeJobStatus = (jobId) => scrapeJobStatusCache.get(jobId) || null;
 export const listScrapedPosts = (params = {}) => api.get("/scraped-posts", { params });
 export const deleteScrapedPost = (id) => api.delete(`/scraped-posts/${id}`);
 export const listScrapedInsights = (params = {}) => api.get("/scraped-insights", { params });

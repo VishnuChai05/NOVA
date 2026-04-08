@@ -16,6 +16,7 @@ class ScrapedPost(Base):
     body: Mapped[str] = mapped_column(Text)
     score: Mapped[int] = mapped_column(Integer, default=0)
     url: Mapped[str] = mapped_column(Text, unique=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), index=True
     )

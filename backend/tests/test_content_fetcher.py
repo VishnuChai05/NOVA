@@ -131,6 +131,7 @@ class TestContentFetcherRetry:
             mock_response = MagicMock()
             mock_response.text = f"<html>{short_content}</html>"
             mock_response.status_code = 200
+            mock_response.headers = {"content-type": "text/html"}
             mock_client = MagicMock()
             mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=None)
@@ -149,6 +150,7 @@ class TestContentFetcherRetry:
             mock_response = MagicMock()
             mock_response.text = f"<html><p>{long_content}</p></html>"
             mock_response.status_code = 200
+            mock_response.headers = {"content-type": "text/html"}
             mock_client = MagicMock()
             mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=None)
@@ -157,3 +159,30 @@ class TestContentFetcherRetry:
 
             result = fetcher.fetch_page_content("http://example.com", default_snippet="short")
             assert long_content.split()[0] in result  # Content contains expected words
+
+    def test_fetch_page_details_prefers_trafilatura_when_available(self, monkeypatch):
+        fetcher = ContentFetcher()
+
+        class FakeTrafilatura:
+            @staticmethod
+            def extract(html, include_comments=False, include_tables=False, favor_recall=True, output_format="txt"):
+                assert output_format == "txt"
+                return "Article body from trafilatura\n\nWith paragraphs"
+
+        monkeypatch.setattr("app.services.content_fetcher.trafilatura", FakeTrafilatura())
+
+        with patch("httpx.Client") as mock_client_class:
+            mock_response = MagicMock()
+            mock_response.text = "<html><h1>Example title</h1><p>body</p></html>"
+            mock_response.status_code = 200
+            mock_response.headers = {"content-type": "text/html"}
+            mock_client = MagicMock()
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=None)
+            mock_client.get = MagicMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            result = fetcher.fetch_page_details("http://example.com", default_snippet="short snippet")
+
+        assert result["body"] == "Article body from trafilatura\n\nWith paragraphs"
+        assert result["title"] == "Example title"

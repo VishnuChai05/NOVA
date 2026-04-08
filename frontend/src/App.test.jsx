@@ -22,10 +22,17 @@ describe("frontend", () => {
     expect(typeof mod.default).toBe("function");
   });
 
+  test("useScrapeJobProgress hook module exports a default function", async () => {
+    const mod = await import("./lib/useScrapeJobProgress");
+    expect(typeof mod.default).toBe("function");
+  });
+
   test("api module exports all expected endpoint functions", async () => {
     const api = await import("./lib/api");
     const expectedExports = [
       "health", "blogCount", "refreshBlogCount", "runScrape",
+      "getScrapeJobStatus", "getActiveScrapeJobStatus", "clearScrapeJobStatusCache",
+      "peekScrapeJobStatus",
       "listScrapedPosts", "listScrapedInsights", "listScrapedKeywordCandidates",
       "deleteScrapedPost",
       "listScrapeRuns", "getScrapeScheduler",

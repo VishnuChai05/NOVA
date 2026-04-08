@@ -19,6 +19,7 @@ dist/
 # IDE
 .vscode/
 .railway/
+.firebase/
 
 # Data
 *.db
@@ -26,3 +27,8 @@ dist/
 logs/
 backend/.logs/
 backend/ohsou.db.backup-*
+
+# Local temp files
+tmp_diff*.txt
+tmp_status*.txt
+backend/migrate_log.txt

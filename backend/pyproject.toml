@@ -18,7 +18,12 @@ dependencies = [
   "praw>=7.8.1",
   "apify-client>=1.8.1",
   "beautifulsoup4>=4.12.3",
+  "feedparser>=6.0.11",
+  "trafilatura>=1.9.0",
   "PyYAML>=6.0.2",
+  "alembic>=1.13.2",
+  "redis>=5.0.8",
+  "rq==1.16.2",
 ]
 
 [project.optional-dependencies]

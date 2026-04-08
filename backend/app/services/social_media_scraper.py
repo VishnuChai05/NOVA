@@ -8,6 +8,7 @@ Responsibilities:
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import httpx
@@ -86,6 +87,14 @@ class SocialMediaScraper:
                 return True
         return False
 
+    @staticmethod
+    def _published_at_value(*values) -> str | None:
+        for value in values:
+            parsed = ContentFetcher.parse_datetime_value(value)
+            if parsed:
+                return parsed.isoformat()
+        return None
+
     def fetch_reddit_posts(self, cfg: "ScraperConfig") -> dict:
         """
         Fetch posts from Reddit via PRAW API.
@@ -149,6 +158,9 @@ class SocialMediaScraper:
                             "body": body,
                             "score": int(submission.score or 0),
                             "url": f"https://www.reddit.com{submission.permalink}",
+                            "published_at": datetime.fromtimestamp(
+                                float(getattr(submission, "created_utc", 0) or 0), tz=timezone.utc
+                            ).isoformat(),
                         }
                     )
 
@@ -221,7 +233,8 @@ class SocialMediaScraper:
                 if "reddit.com" not in url or not title:
                     continue
 
-                body = self.fetcher.fetch_page_content(url, default_snippet=description)
+                page_details = self.fetcher.fetch_page_details(url, default_snippet=description)
+                body = str(page_details.get("body") or description)
 
                 results.append(
                     {
@@ -230,6 +243,14 @@ class SocialMediaScraper:
                         "body": body,
                         "score": 0,
                         "url": url,
+                        "published_at": self._published_at_value(
+                            result.get("publishedAt"),
+                            result.get("published_at"),
+                            result.get("date"),
+                            result.get("timestamp"),
+                            result.get("createdAt"),
+                            page_details.get("published_at"),
+                        ),
                     }
                 )
                 if len(results) >= cfg.max_posts_per_source:
@@ -292,7 +313,16 @@ class SocialMediaScraper:
                 if "quora.com" not in url or not title:
                     continue
 
-                body = self.fetcher.fetch_page_content(url, default_snippet=description)
+                page_details = self.fetcher.fetch_page_details(url, default_snippet=description)
+                body = str(page_details.get("body") or description)
+                published_at = self._published_at_value(
+                    result.get("publishedAt"),
+                    result.get("published_at"),
+                    result.get("date"),
+                    result.get("timestamp"),
+                    result.get("createdAt"),
+                    page_details.get("published_at"),
+                )
 
                 results.append(
                     {
@@ -301,6 +331,7 @@ class SocialMediaScraper:
                         "body": body,
                         "score": 0,
                         "url": url,
+                        "published_at": published_at,
                     }
                 )
                 if len(results) >= cfg.max_posts_per_source:
@@ -351,7 +382,9 @@ class SocialMediaScraper:
                     if "quora.com" not in url or not title:
                         continue
 
-                    body = self.fetcher.fetch_page_content(url, default_snippet=snippet)
+                    page_details = self.fetcher.fetch_page_details(url, default_snippet=snippet)
+                    body = str(page_details.get("body") or snippet)
+                    published_at = self._published_at_value(page_details.get("published_at"))
 
                     results.append(
                         {
@@ -360,6 +393,7 @@ class SocialMediaScraper:
                             "body": body,
                             "score": 0,
                             "url": url,
+                            "published_at": published_at,
                         }
                     )
                     if len(results) >= cfg.max_posts_per_source:
@@ -434,7 +468,16 @@ class SocialMediaScraper:
                 if not title or not url or not self._url_matches_domains(url, domains):
                     continue
 
-                body = self.fetcher.fetch_page_content(url, default_snippet=description)
+                page_details = self.fetcher.fetch_page_details(url, default_snippet=description)
+                body = str(page_details.get("body") or description)
+                published_at = self._published_at_value(
+                    result.get("publishedAt"),
+                    result.get("published_at"),
+                    result.get("date"),
+                    result.get("timestamp"),
+                    result.get("createdAt"),
+                    page_details.get("published_at"),
+                )
 
                 results.append(
                     {
@@ -443,6 +486,7 @@ class SocialMediaScraper:
                         "body": body,
                         "score": 0,
                         "url": url,
+                        "published_at": published_at,
                     }
                 )
                 if len(results) >= max_posts:

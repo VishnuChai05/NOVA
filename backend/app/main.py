@@ -3,8 +3,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from logging_config import setup_logging
 
@@ -18,7 +19,13 @@ _LEGACY_DB_PATH = _REPO_ROOT / "ohsou.db"
 
 
 def _log_database_location() -> None:
-    logger.info("SQLite database URL resolved to %s", settings.database_url)
+    db_url = settings.database_url
+    # Mask password in logs for postgres URLs
+    if "@" in db_url:
+        masked = db_url.split("@")[-1]
+        logger.info("Database connected at: ...@%s", masked)
+    else:
+        logger.info("Database URL resolved to %s", db_url)
     if _LEGACY_DB_PATH.exists():
         logger.warning(
             "Legacy database file detected at %s; the app now writes to the backend-owned path instead.",
@@ -69,12 +76,21 @@ def _allowed_origins(frontend_url: str) -> list[str]:
 
     return sorted(origins)
 
+
+def _allow_origin_regex() -> str | None:
+    # In local development Vite may auto-increment ports (5173, 5174, ...).
+    # Accept localhost/127.0.0.1 dynamic ports to keep API polling stable.
+    if (settings.environment or "").strip().lower() != "prod":
+        return r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    return None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(settings.frontend_url),
+    allow_origin_regex=_allow_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Accept", "Authorization", "Content-Type", "X-API-Key", "X-Requested-With"],
 )
 
 app.include_router(health_router, prefix="/api")
@@ -82,3 +98,10 @@ app.include_router(blog_router, prefix="/api")
 app.include_router(scrape_router, prefix="/api")
 app.include_router(engine_router, prefix="/api")
 app.include_router(generate_router, prefix="/api")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all handler that prevents raw stack traces from leaking in API responses."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

@@ -11,6 +11,63 @@ import re
 
 logger = None  # Import logging if needed
 
+_BINARY_SIGNATURES = (
+    "jfif",
+    "exif",
+    "png",
+    "gif89a",
+    "%pdf",
+)
+
+_BOILERPLATE_TITLES = {
+    "table of contents",
+    "contents",
+    "menu",
+    "sitemap",
+    "skip to content",
+}
+
+_RELEVANCE_POSITIVE_KEYWORDS = {
+    "bra",
+    "bralette",
+    "shapewear",
+    "panty",
+    "underwear",
+    "lingerie",
+    "innerwear",
+    "period",
+    "menstrual",
+    "pad",
+    "tampon",
+    "cup",
+    "fit",
+    "support",
+    "comfort",
+    "strap",
+    "size",
+    "seamless",
+    "breathable",
+    "chafing",
+    "rash",
+    "hygiene",
+}
+
+_RELEVANCE_NEGATIVE_KEYWORDS = {
+    "bitcoin",
+    "crypto",
+    "nft",
+    "casino",
+    "betting",
+    "politics",
+    "election",
+    "war",
+    "stock market",
+    "celebrity gossip",
+    "movie review",
+    "cricket",
+    "football",
+}
+
 
 _CATEGORY_KEYWORDS: dict[str, set[str]] = {
     "bra": {
@@ -144,12 +201,53 @@ class ScrapedDataProcessor:
         title = (post.get("title") or "").strip()
         body = (post.get("body") or "").strip()
 
+        lowered_title = title.lower()
+        lowered_body_sample = body[:200].lower()
+        normalized_title = " ".join(lowered_title.split())
+
+        if normalized_title in _BOILERPLATE_TITLES or normalized_title.startswith("table of contents"):
+            return False
+        if any(marker in lowered_body_sample for marker in ("table of contents", "skip to content")):
+            return False
+
+        if any(sig in lowered_title for sig in _BINARY_SIGNATURES):
+            return False
+        if any(sig in lowered_body_sample for sig in _BINARY_SIGNATURES):
+            return False
+
+        if "\x00" in title or "\x00" in body[:500]:
+            return False
+
+        # Reject rows with too many replacement/garbled characters in title.
+        noisy_chars = sum(1 for ch in title if ch in {"�", "ï", "¿"})
+        if title and noisy_chars / max(1, len(title)) > 0.08:
+            return False
+
         if len(title) < min_title_length:
             return False
         if len(body) < min_body_length:
             return False
 
         return True
+
+    @staticmethod
+    def relevance_score(post: dict) -> int:
+        """Compute lightweight relevance score against comfort/innerwear intent."""
+        title = (post.get("title") or "").lower()
+        body = (post.get("body") or "").lower()
+        text = f"{title} {body[:1200]}"
+
+        positive_hits = sum(1 for keyword in _RELEVANCE_POSITIVE_KEYWORDS if keyword in text)
+        negative_hits = sum(1 for keyword in _RELEVANCE_NEGATIVE_KEYWORDS if keyword in text)
+
+        # Bias title hits slightly higher because titles usually encode primary intent.
+        title_bonus = sum(1 for keyword in _RELEVANCE_POSITIVE_KEYWORDS if keyword in title)
+        return positive_hits + title_bonus - (2 * negative_hits)
+
+    @staticmethod
+    def is_relevant_post(post: dict, min_score: int = 2) -> bool:
+        """Filter out off-topic rows before expensive processing/classification."""
+        return ScrapedDataProcessor.relevance_score(post) >= min_score
 
     @staticmethod
     def seed_posts() -> list[dict]:

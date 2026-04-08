@@ -100,6 +100,37 @@ class TestUrlMatchesDomains:
         assert crawler.url_matches_domains("https://reddit.com", []) is False
 
 
+class TestContentTitleAndQuality:
+    def test_table_of_contents_title_is_skipped(self):
+        crawler = URLCrawler()
+        body = "Table of Contents\n\nThis page discusses bra fit and comfort."
+        title = crawler.extract_content_title(body, "https://example.com/article", page_title="Table of Contents")
+        assert title != "Table of Contents"
+
+    def test_table_of_contents_post_is_rejected(self):
+        post = {
+            "title": "Table of Contents",
+            "body": "bra fit and support " * 20,
+        }
+        assert ScrapedDataProcessor.is_quality_post(post) is False
+
+
+class TestRelevanceFilter:
+    def test_relevant_post_passes(self):
+        post = {
+            "title": "Best breathable bra for all-day support",
+            "body": "Looking for comfort, fit, and strap support in humid weather." * 6,
+        }
+        assert ScrapedDataProcessor.is_relevant_post(post, min_score=2) is True
+
+    def test_off_topic_post_fails(self):
+        post = {
+            "title": "Latest crypto market crash analysis",
+            "body": "bitcoin trading and election politics outlook" * 10,
+        }
+        assert ScrapedDataProcessor.is_relevant_post(post, min_score=2) is False
+
+
 # --- evaluate_output tests ---
 from app.services.generator import evaluate_output
 

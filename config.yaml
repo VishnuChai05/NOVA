@@ -52,8 +52,6 @@ blog_queries:
 - period wellness
 - women lifestyle
 forum_domains:
-- reddit.com
-- quora.com
 - girlsaskguys.com
 - thegirlsspot.com
 - community.babycenter.com
@@ -61,12 +59,12 @@ forum_domains:
 - community.whattoexpect.com
 - netmums.com
 blog_domains:
-- blog.ohsou.com
-- healthshots.com
-- stylecraze.com
-- womensweb.in
+ - blog.ohsou.com
+ - healthshots.com
+ - stylecraze.com
+ - womensweb.in
 max_posts_per_source: 50
 min_score: 10
 run_schedule: 0 9 * * 1
 crawl_full_blog_domains: true
-blog_crawl_max_urls_per_domain: 10
+blog_crawl_max_urls_per_domain: 120

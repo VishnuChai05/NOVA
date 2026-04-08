@@ -91,11 +91,31 @@ class Settings(BaseSettings):
     scraped_data_retention_days: int = 30
     continuous_scrape_enabled: bool = False
     continuous_scrape_interval_minutes: int = 60
+    scrape_parallel_max_workers: int = 4
+    scrape_reddit_timeout_seconds: float = 180.0
+    scrape_quora_timeout_seconds: float = 180.0
+    scrape_forum_timeout_seconds: float = 240.0
+    scrape_blog_timeout_seconds: float = 360.0
+    scrape_relevance_min_score: int = 2
+    scrape_topic_classifier_provider: str = "template"
+    redis_url: str = "redis://localhost:6379/0"
+    scrape_job_queue_name: str = "scrape"
+    scrape_job_timeout_seconds: int = 7200
 
     @model_validator(mode="after")
     def _normalize_database_url(self) -> "Settings":
         self.database_url = _normalize_postgres_url(self.database_url)
         self.database_url = _normalize_sqlite_url(self.database_url)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_prod_secrets(self) -> "Settings":
+        if self.environment.strip().lower() == "prod":
+            if self.operational_api_key == "change-me":
+                raise ValueError(
+                    "OPERATIONAL_API_KEY must be changed from the default 'change-me' in production. "
+                    "Set a strong random key in your .env.production file."
+                )
         return self
 
 

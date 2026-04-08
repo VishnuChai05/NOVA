@@ -17,6 +17,11 @@ from bs4.exceptions import FeatureNotFound
 from app.core.settings import settings
 from app.services.content_fetcher import ContentFetcher
 
+try:
+    import feedparser
+except ImportError:  # pragma: no cover - optional dependency
+    feedparser = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +50,7 @@ class URLCrawler:
         slug = re.sub(r"\s+", " ", slug)
         return (slug.title() or "Blog content")[:180]
 
-    def extract_content_title(self, body: str, url: str) -> str:
+    def extract_content_title(self, body: str, url: str, page_title: str | None = None) -> str:
         """
         Extract meaningful title from HTML body.
         
@@ -66,9 +71,10 @@ class URLCrawler:
             "home",
             "read more",
             "share",
+            "table of contents",
         }
-        for line in body.splitlines():
-            candidate = line.strip()
+        for candidate in [page_title or "", *body.splitlines()]:
+            candidate = candidate.strip()
             if len(candidate) < 12:
                 continue
             lowered = candidate.lower()
@@ -206,6 +212,47 @@ class URLCrawler:
 
         return list(found)[:max_urls], failures
 
+    def discover_urls_from_feed(self, domain: str, max_urls: int) -> tuple[list[str], list[str]]:
+        """Discover URLs from RSS/Atom feeds before falling back to HTML crawling."""
+        if feedparser is None:
+            return [], []
+
+        base = domain if domain.startswith("http") else f"https://{domain}"
+        base = base.rstrip("/")
+        feed_candidates = [
+            f"{base}/feed",
+            f"{base}/rss",
+            f"{base}/rss.xml",
+            f"{base}/atom.xml",
+        ]
+
+        failures: list[str] = []
+        found: list[str] = []
+        seen: set[str] = set()
+
+        for feed_url in feed_candidates:
+            try:
+                parsed = feedparser.parse(feed_url)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"feed fetch failed {feed_url}: {exc}")
+                continue
+
+            entries = parsed.entries or []
+            for entry in entries:
+                link = self.normalize_url(str(getattr(entry, "link", "") or ""))
+                if not link or link in seen:
+                    continue
+                if not self.url_matches_domains(link, [urlparse(base).hostname or domain]):
+                    continue
+                if link.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".svg", ".css", ".js", ".pdf", ".xml")):
+                    continue
+                seen.add(link)
+                found.append(link)
+                if len(found) >= max_urls:
+                    return found[:max_urls], failures
+
+        return found[:max_urls], failures
+
     def crawl_domains(
         self,
         source_name: str,
@@ -241,20 +288,24 @@ class URLCrawler:
             if not normalized_domain or normalized_domain in {"reddit.com", "quora.com"}:
                 continue
 
+            feed_urls, feed_failures = self.discover_urls_from_feed(normalized_domain, max_per_domain)
             sitemap_urls, sitemap_failures = self.discover_urls_from_sitemap(normalized_domain, max_per_domain)
             homepage_urls, homepage_failures = self.discover_urls_from_homepage(normalized_domain, max_per_domain)
+            failures.extend(feed_failures)
             failures.extend(sitemap_failures)
             failures.extend(homepage_failures)
 
             candidate_urls = self._dedupe_urls(
-                [{"url": u} for u in (sitemap_urls + homepage_urls)]
+                [{"url": u} for u in (feed_urls + sitemap_urls + homepage_urls)]
             )
             for item in candidate_urls[:max_per_domain]:
                 url = item["url"]
-                body = self.fetcher.fetch_page_content(url)
+                details = self.fetcher.fetch_page_details(url)
+                body = str(details.get("body") or "")
                 if not body or len(body) < 200:
                     continue
-                title = self.extract_content_title(body, url)
+                title = self.extract_content_title(body, url, page_title=str(details.get("title") or ""))
+                published_at = details.get("published_at")
                 rows.append(
                     {
                         "source": source_name,
@@ -262,9 +313,10 @@ class URLCrawler:
                         "body": body,
                         "score": 0,
                         "url": url,
+                        "published_at": published_at.isoformat() if published_at else None,
                     }
                 )
-                if len(rows) >= max(1, max_posts_per_source * max(1, len(domains))):
+                if len(rows) >= max_posts_per_source:
                     return {"rows": rows, "failures": failures}
 
         return {"rows": rows, "failures": failures}
@@ -293,7 +345,7 @@ class URLCrawler:
             source_name="discussion_forums",
             domains=domains,
             max_posts_per_source=max_posts_per_source,
-            max_urls_per_domain=20,
+            max_urls_per_domain=8,
         )
 
     @staticmethod

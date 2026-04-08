@@ -11,6 +11,7 @@ class ScrapedPostOut(BaseModel):
     body: str
     score: int
     url: str
+    published_at: datetime | None = None
     scraped_at: datetime
     processed: bool
     category_tag: str
@@ -46,6 +47,21 @@ class ScrapeRunResponse(BaseModel):
     fetched: int
     status: str
     message: str | None = None
+
+
+class ScrapeJobRunAcceptedOut(BaseModel):
+    job_id: str
+    status: str
+    source_type: str
+
+
+class ScrapeJobStatusOut(BaseModel):
+    job_id: str
+    status: str
+    source_type: str
+    progress_pct: int
+    message: str | None = None
+    result: dict | None = None
 
 
 class ScrapeRunOut(BaseModel):

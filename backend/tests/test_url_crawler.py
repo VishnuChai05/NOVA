@@ -23,7 +23,9 @@ class TestURLCrawler:
         Now should use the configured value directly.
         """
         mock_fetcher = MagicMock(spec=ContentFetcher)
-        mock_fetcher.fetch_page_content = MagicMock(return_value="x" * 300)
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 300, "title": "Mock title", "published_at": None}
+        )
 
         crawler = URLCrawler(mock_fetcher)
 
@@ -49,12 +51,14 @@ class TestURLCrawler:
             # shouldn't be artificially limited to 3
             assert len(result["rows"]) > 0
             # The max_per_domain calculation should use 120, not 3
-            assert mock_fetcher.fetch_page_content.call_count >= 10  # At least more than 3
+            assert mock_fetcher.fetch_page_details.call_count >= 10  # At least more than 3
 
     def test_crawl_domains_with_small_max_urls(self):
         """Test crawl_domains with small max_urls_per_domain value."""
         mock_fetcher = MagicMock(spec=ContentFetcher)
-        mock_fetcher.fetch_page_content = MagicMock(return_value="x" * 300)
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 300, "title": "Mock title", "published_at": None}
+        )
 
         crawler = URLCrawler(mock_fetcher)
 
@@ -74,12 +78,14 @@ class TestURLCrawler:
 
             assert len(result["rows"]) > 0
             # Should attempt to fetch/crawl URLs up to the limit
-            assert mock_fetcher.fetch_page_content.call_count >= 3
+            assert mock_fetcher.fetch_page_details.call_count >= 3
 
     def test_crawl_domains_skips_short_content(self):
         """Test that crawl_domains skips posts with content < 200 chars."""
         mock_fetcher = MagicMock(spec=ContentFetcher)
-        mock_fetcher.fetch_page_content = MagicMock(return_value="x" * 100)  # Too short
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 100, "title": "Short body", "published_at": None}
+        )
 
         crawler = URLCrawler(mock_fetcher)
 
@@ -154,7 +160,9 @@ class TestURLCrawler:
     def test_crawl_blog_domains_wrapper(self):
         """Test crawl_blog_domains wrapper method."""
         mock_fetcher = MagicMock(spec=ContentFetcher)
-        mock_fetcher.fetch_page_content = MagicMock(return_value="x" * 300)
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 300, "title": "Mock title", "published_at": None}
+        )
 
         crawler = URLCrawler(mock_fetcher)
 
@@ -176,7 +184,9 @@ class TestURLCrawler:
     def test_crawl_forum_domains_wrapper(self):
         """Test crawl_forum_domains wrapper method."""
         mock_fetcher = MagicMock(spec=ContentFetcher)
-        mock_fetcher.fetch_page_content = MagicMock(return_value="x" * 300)
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 300, "title": "Mock title", "published_at": None}
+        )
 
         crawler = URLCrawler(mock_fetcher)
 
@@ -191,4 +201,30 @@ class TestURLCrawler:
             mock_crawl.assert_called_once()
             call_kwargs = mock_crawl.call_args[1]
             assert call_kwargs["source_name"] == "discussion_forums"
-            assert call_kwargs["max_urls_per_domain"] == 20
+            assert call_kwargs["max_urls_per_domain"] == 8
+
+    def test_crawl_domains_prefers_feed_urls(self):
+        mock_fetcher = MagicMock(spec=ContentFetcher)
+        mock_fetcher.fetch_page_details = MagicMock(
+            return_value={"body": "x" * 300, "title": "Mock title", "published_at": None}
+        )
+
+        crawler = URLCrawler(mock_fetcher)
+
+        with patch.object(crawler, "discover_urls_from_feed") as mock_feed, \
+             patch.object(crawler, "discover_urls_from_sitemap") as mock_sitemap, \
+             patch.object(crawler, "discover_urls_from_homepage") as mock_homepage:
+            mock_feed.return_value = (["https://example.com/feed-post-1"], [])
+            mock_sitemap.return_value = ([], [])
+            mock_homepage.return_value = ([], [])
+
+            result = crawler.crawl_domains(
+                source_name="blog_crawl",
+                domains=["example.com"],
+                max_posts_per_source=10,
+                max_urls_per_domain=10,
+            )
+
+        assert len(result["rows"]) == 1
+        assert result["rows"][0]["url"] == "https://example.com/feed-post-1"
+        mock_feed.assert_called_once()

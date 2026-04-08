@@ -49,6 +49,9 @@ sudo docker compose ps
 
 Frontend will be available on port 80.
 
+The compose stack includes healthchecks for Redis, backend, worker, and frontend.
+Wait for `docker compose ps` to show all services as healthy before using the app.
+
 ## 4. Verify
 
 ```bash
@@ -59,6 +62,8 @@ If API auth is enabled, include header:
 
 ```bash
 curl -H "X-API-Key: <OPERATIONAL_API_KEY>" http://127.0.0.1/api/scraped-posts
+
+Also verify the frontend origin is allowed by opening the app in the configured `FRONTEND_URL`.
 ```
 
 ## 5. Logs
