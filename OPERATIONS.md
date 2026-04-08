@@ -1,5 +1,11 @@
 # Operations Guide
 
+## Production Topology
+
+- Frontend is served from Firebase Hosting.
+- Backend API runs on GCP.
+- Background scrape jobs use Upstash Redis for the queue backend.
+
 ## Log Files
 
 | File | Contains | Size Limit |

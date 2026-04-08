@@ -16,11 +16,13 @@ Women's product brands in India struggle to find authentic, community-driven ins
 
 ## Deployment Status
 
-NOVA is deployment-ready and includes production configuration for:
+NOVA is now deployed in production with this architecture:
 
-- **VPS deployment** via Docker Compose
-- **Railway deployment** for managed backend hosting
-- **Firebase hosting configuration** for frontend hosting workflows
+- **Frontend:** Firebase Hosting
+- **Backend API:** GCP-hosted backend service
+- **Worker Queue/Redis:** Upstash Redis
+
+The repository also includes alternative deployment paths (VPS Docker Compose and Railway), but the active production stack is Firebase + GCP + Upstash.
 
 Use these docs based on your target platform:
 

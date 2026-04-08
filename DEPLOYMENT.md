@@ -1,5 +1,8 @@
 # Deployment (VPS + Docker Compose)
 
+Current production deployment uses Firebase Hosting (frontend), GCP (backend API), and Upstash Redis (worker queue).
+This document covers the self-hosted VPS + Docker Compose path retained for portability and fallback.
+
 This is the easiest production setup for NOVA.
 
 ## 1. Server prerequisites
